@@ -1,0 +1,47 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Accounts & Stats</h1>
+    <p>Overview of all tracked Instagram accounts and their most recent metrics.</p>
+</div>
+
+<div class="table-container fade-in">
+    <table>
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Full Name</th>
+                <th>Business</th>
+                <th>Followers</th>
+                <th>Following</th>
+                <th>Total Posts</th>
+                <th>Last Checked</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for account in accounts %}
+            <tr>
+                <td class="primary-col">@{{ account.username }}</td>
+                <td>{{ account.full_name or "—" }}</td>
+                <td>
+                    {% if account.is_business %}
+                        <span class="badge badge-business">Business</span>
+                    {% else %}
+                        <span class="badge badge-personal">Personal</span>
+                    {% endif %}
+                </td>
+                <td class="num-col">{{ "{:,}".format(account.followers) if account.followers else "0" }}</td>
+                <td class="num-col">{{ "{:,}".format(account.following) if account.following else "0" }}</td>
+                <td class="num-col">{{ "{:,}".format(account.total_posts) if account.total_posts else "0" }}</td>
+                <td class="date-col">{{ account.date_checked }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" class="empty-state">No accounts found in the database. Run the scraper!</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

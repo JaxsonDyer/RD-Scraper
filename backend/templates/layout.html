@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Scraper UI</title>
+    <!-- Importing modern typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">Instagram Scraper</div>
+        <ul class="nav-links">
+            <li><a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' else '' }}">Accounts & Stats</a></li>
+            <li><a href="{{ url_for('posts') }}" class="{{ 'active' if request.endpoint == 'posts' else '' }}">Posts</a></li>
+            <li><a href="{{ url_for('scraper_ui') }}" class="{{ 'active' if request.endpoint == 'scraper_ui' else '' }}">Manager</a></li>
+        </ul>
+    </nav>
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

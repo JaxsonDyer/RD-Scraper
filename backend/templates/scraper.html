@@ -1,0 +1,428 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Scraper Manager</h1>
+    <p>Configure automated tasks or execute manual paginated deep-scrapes safely from the background.</p>
+</div>
+
+<div class="tabs-container">
+    <div class="tab-triggers">
+        <button class="tab-btn active" onclick="switchTab('global-config')">Global Config</button>
+        <button class="tab-btn" onclick="switchTab('deep-scrape')">Deep Scrape (Manual)</button>
+    </div>
+
+    <!-- TAB 1: Global Config -->
+    <div id="global-config" class="tab-content active fade-in">
+        <div class="panel">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; gap: 2rem;">
+                <div style="flex:1;">
+                    <h2>Automated Task Settings</h2>
+                    <p style="color: var(--text-muted); font-size: 0.95rem;">Configure how and when the background Scraper runs automatically.</p>
+                </div>
+                <div class="calendar-widget">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <span id="cal-month" style="font-weight: 600; color: var(--text-main);">Loading...</span>
+                        <div id="countdown-timer" style="font-size: 0.85rem; font-family: monospace; color: var(--badge-photo-text);">--:--:--</div>
+                    </div>
+                    <div class="calendar-grid" id="cal-grid">
+                        <!-- js injected -->
+                    </div>
+                    <div style="display:flex; gap: 1rem; margin-top:0.75rem; font-size:0.75rem; color: var(--text-muted);">
+                       <span style="display:flex; align-items:center;"><span style="display:inline-block;width:8px;height:8px;background:rgba(52,211,153,0.3); border:1px solid #34d399;border-radius:50%;margin-right:4px;"></span>Successful Scrape</span>
+                       <span style="display:flex; align-items:center;"><span style="display:inline-block;width:8px;height:8px;background:rgba(59,130,246,0.3); border:1px solid #3b82f6;border-radius:50%;margin-right:4px;"></span>Next Scheduled</span>
+                    </div>
+                </div>
+            </div>
+            <form id="configForm" class="stacked-form">
+                <div class="form-group" style="margin-bottom: 2rem;">
+                    <label>Target Accounts</label>
+                    <div class="accounts-manager">
+                        <div class="accounts-list-header">
+                            <span id="account-count" style="font-size:0.85rem; color:var(--text-muted); font-weight:600;">Targets: 0</span>
+                            <input type="text" id="account_search" placeholder="Search targets..." style="width: 200px; padding: 0.4rem 0.8rem;" onkeyup="filterAccounts()">
+                        </div>
+                        <div class="accounts-list-scrollable" id="accounts_list_container">
+                            <!-- JS injected rows -->
+                        </div>
+                        <div class="bulk-add-row">
+                            <input type="text" id="bulk_input" placeholder="Type or paste usernames (comma separated) and press Enter..." style="flex:1; border:none; background:transparent; padding:0; box-shadow:none;">
+                            <button type="button" class="btn-secondary" style="padding: 0.4rem 1rem;" onclick="addAccounts()">Add</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Daily Run Time</label>
+                        <input type="time" id="daily_run_time" value="{{ config.daily_run_time }}" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Incremental Limit</label>
+                        <input type="number" id="incremental_post_limit" value="{{ config.incremental_post_limit }}" required>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="button" class="btn-primary" onclick="saveConfig()">Save Configuration</button>
+                    <button type="button" class="btn-danger" id="forceScrapeBtn" onclick="forceScrape()">Force Daily Scrape Now</button>
+                </div>
+                <div id="config-status" class="status-msg"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- TAB 2: Deep Scrape -->
+    <div id="deep-scrape" class="tab-content fade-in" style="display: none;">
+        <div class="panel">
+            <h2>Targeted History Scraping</h2>
+            <p class="tab-desc">Extract deep histories. Runs in the background and respects API ratelimits.</p>
+            
+            <form id="analyzeForm" class="stacked-form">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="deep_username" placeholder="e.g. reddeer" required>
+                </div>
+                <button type="button" class="btn-secondary" id="analyzeBtn" onclick="analyzeAccount()">Analyze Account</button>
+                <div id="analyze-status" class="status-msg"></div>
+            </form>
+
+            <form id="executeDeepForm" class="stacked-form" style="display: none; margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 2rem;">
+                <h3 style="margin-bottom: 1rem;">Target Discovered: <span id="found-count" style="color: var(--badge-vid-text);">0</span> Total Posts</h3>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Posts to Scrape</label>
+                        <input type="number" id="deep_limit" value="50" min="1">
+                        <div style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="checkbox" id="scrape_all" onchange="toggleAllScrape()"> 
+                            <label for="scrape_all" style="font-size: 0.85rem; padding:0;">Select All Posts</label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Pagination Delay</label>
+                        <div class="delay-input-group">
+                            <div class="delay-field">
+                                <input type="number" id="delay_h" value="0" min="0" max="24"><span>hrs</span>
+                            </div>
+                            <div class="delay-field">
+                                <input type="number" id="delay_m" value="0" min="0" max="59"><span>mins</span>
+                            </div>
+                            <div class="delay-field">
+                                <input type="number" id="delay_s" value="5" min="0" max="59"><span>secs</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="button" class="btn-danger" id="startDeepBtn" onclick="startDeepScrape()">Start Deep Scrape</button>
+                <div id="deep-status" class="status-msg"></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Tab Switching
+function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    
+    document.getElementById(tabId).style.display = 'block';
+    
+    // Find button that activated
+    event.currentTarget.classList.add('active');
+}
+
+// Accounts Manager
+let targetAccounts = {{ config.target_accounts | tojson }};
+
+function renderAccountList(filterText = '') {
+    const container = document.getElementById('accounts_list_container');
+    container.innerHTML = '';
+    
+    let count = 0;
+    targetAccounts.forEach((acc, index) => {
+        if(filterText && !acc.toLowerCase().includes(filterText.toLowerCase())) return;
+        
+        count++;
+        const row = document.createElement('div');
+        row.className = 'account-list-item';
+        row.innerHTML = `
+            <span>@${acc}</span>
+            <button type="button" class="btn-remove-acc" onclick="removeAccount(${index})">&times;</button>
+        `;
+        container.appendChild(row);
+    });
+    
+    document.getElementById('account-count').innerText = `Targets: ${targetAccounts.length} (Viewing ${count})`;
+}
+
+function removeAccount(index) {
+    targetAccounts.splice(index, 1);
+    filterAccounts(); // Re-render maintaining active filter
+}
+
+function addAccounts() {
+    const input = document.getElementById('bulk_input');
+    const val = input.value.trim();
+    if(!val) return;
+    
+    // Split by commas, newline, or multiple spaces to support dirty paste
+    const incoming = val.split(/[,\n\s]+/).map(i => i.trim().replace(/^@/, '')).filter(i => i);
+    
+    let added = 0;
+    incoming.forEach(acc => {
+        if(!targetAccounts.includes(acc)) {
+            targetAccounts.push(acc);
+            added++;
+        }
+    });
+    
+    input.value = '';
+    filterAccounts();
+    
+    if(added > 0) {
+        document.getElementById('config-status').innerHTML = `<span style="color:var(--badge-biz-text)">Added ${added} new targets. Remember to Save Configuration!</span>`;
+    }
+}
+
+function filterAccounts() {
+    const val = document.getElementById('account_search').value.trim();
+    renderAccountList(val);
+}
+
+// Allow Enter key to submit bulk add
+document.getElementById('bulk_input').addEventListener('keydown', function(e) {
+    if(e.key === 'Enter') {
+        e.preventDefault();
+        addAccounts();
+    }
+});
+
+// Run automatically on mount
+renderAccountList();
+
+// Config Saving
+async function saveConfig() {
+    const btn = document.querySelector('.btn-primary');
+    btn.innerText = "Saving...";
+    
+    // We join the array into comma format, which our backend /api/config implicitly parses
+    const payload = {
+        target_accounts: targetAccounts.join(','),
+        daily_run_time: document.getElementById('daily_run_time').value,
+        incremental_post_limit: document.getElementById('incremental_post_limit').value
+    };
+    
+    const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    
+    const data = await res.json();
+    document.getElementById('config-status').innerHTML = `<span style="color:var(--badge-biz-text)">${data.message}</span>`;
+    btn.innerText = "Save Configuration";
+}
+
+// Force Scrape
+async function forceScrape() {
+    const btn = document.getElementById('forceScrapeBtn');
+    btn.innerText = "Initializing...";
+    btn.disabled = true;
+    
+    const res = await fetch('/api/force-scrape', {method: 'POST'});
+    const data = await res.json();
+    
+    document.getElementById('config-status').innerHTML = `<span style="color:var(--badge-biz-text)">${data.message}</span>`;
+    btn.innerText = "Force Daily Scrape Now";
+    btn.disabled = false;
+}
+
+// Deep Scrape Analysis Flow
+let maxAvailablePosts = 0;
+
+async function analyzeAccount() {
+    const btn = document.getElementById('analyzeBtn');
+    const user = document.getElementById('deep_username').value;
+    if(!user) return;
+    
+    btn.innerText = "Querying API...";
+    btn.disabled = true;
+    
+    const res = await fetch('/api/analyze-account', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: user})
+    });
+    const data = await res.json();
+    
+    btn.innerText = "Analyze Account";
+    btn.disabled = false;
+    
+    if(data.success) {
+        maxAvailablePosts = data.count;
+        document.getElementById('found-count').innerText = maxAvailablePosts;
+        document.getElementById('executeDeepForm').style.display = 'block';
+        document.getElementById('analyze-status').innerHTML = '';
+        
+        // auto update the limit input max
+        let limInput = document.getElementById('deep_limit');
+        limInput.max = maxAvailablePosts;
+        if(parseInt(limInput.value) > maxAvailablePosts) limInput.value = maxAvailablePosts;
+        
+    } else {
+        document.getElementById('analyze-status').innerHTML = `<span style="color:var(--badge-vid-text)">Could not extract data for @${user}. Check limits.</span>`;
+    }
+}
+
+function toggleAllScrape() {
+    const ckbx = document.getElementById('scrape_all');
+    const lim = document.getElementById('deep_limit');
+    if(ckbx.checked) {
+        lim.value = maxAvailablePosts;
+        lim.disabled = true;
+    } else {
+        lim.disabled = false;
+    }
+}
+
+async function startDeepScrape() {
+    const btn = document.getElementById('startDeepBtn');
+    const user = document.getElementById('deep_username').value;
+    
+    btn.innerText = "Dispatching Thread...";
+    btn.disabled = true;
+    
+    const h = parseInt(document.getElementById('delay_h').value) || 0;
+    const m = parseInt(document.getElementById('delay_m').value) || 0;
+    const s = parseInt(document.getElementById('delay_s').value) || 0;
+    const totalDelaySeconds = (h * 3600) + (m * 60) + s;
+
+    const payload = {
+        username: user,
+        limit: document.getElementById('deep_limit').value,
+        delay: totalDelaySeconds
+    };
+    
+    const res = await fetch('/api/deep-scrape', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    
+    const data = await res.json();
+    document.getElementById('deep-status').innerHTML = `<span style="color:var(--badge-biz-text)">${data.message} Feel free to navigate away safely.</span>`;
+    
+    btn.innerText = "Start Deep Scrape";
+    btn.disabled = false;
+}
+
+// Timer & Calendar Logic
+let nextRunTimestamp = null;
+let pastDatesMap = new Set();
+let nextRunDateStr = null;
+
+function renderCalendar() {
+    const grid = document.getElementById('cal-grid');
+    const monthLabel = document.getElementById('cal-month');
+    grid.innerHTML = '';
+    
+    // Add headers
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    days.forEach(d => {
+        grid.innerHTML += `<div class="cal-day-header">${d}</div>`;
+    });
+    
+    const today = new Date();
+    // Render current month
+    monthLabel.innerText = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+    
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const todayStr = today.toISOString().split('T')[0];
+    
+    // Pad empty cells
+    for(let i=0; i<firstDay; i++) {
+        grid.innerHTML += `<div class="cal-cell empty"></div>`;
+    }
+    
+    // Fill days
+    for(let d=1; d<=daysInMonth; d++) {
+        // Build YYYY-MM-DD
+        const dateStr = `${year}-${String(month+1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        let classes = ["cal-cell"];
+        
+        if (dateStr === todayStr) classes.push("today-marker");
+        
+        if (pastDatesMap.has(dateStr)) {
+            classes.push("past-run");
+        } else if (nextRunDateStr === dateStr) {
+            classes.push("next-run");
+        }
+        
+        grid.innerHTML += `<div class="${classes.join(' ')}">${d}</div>`;
+    }
+}
+
+async function fetchSchedulerStatus() {
+    try {
+        const res = await fetch('/api/scheduler-status');
+        const data = await res.json();
+        
+        pastDatesMap.clear();
+        if (data.past_dates && data.past_dates.length > 0) {
+            data.past_dates.forEach(d => {
+                // Keep only the date string YYYY-MM-DD
+                const dStr = new Date(d).toISOString().split('T')[0];
+                pastDatesMap.add(dStr);
+            });
+        }
+        
+        if (data.next_run_time) {
+            const nextD = new Date(data.next_run_time);
+            nextRunTimestamp = nextD.getTime();
+            nextRunDateStr = nextD.toISOString().split('T')[0];
+        }
+        
+        renderCalendar();
+    } catch(e) {
+        console.error("Could not load scheduler status:", e);
+    }
+}
+
+function updateCountdown() {
+    const display = document.getElementById('countdown-timer');
+    if (!nextRunTimestamp) {
+        display.innerText = "--:--:--";
+        return;
+    }
+    
+    const now = new Date().getTime();
+    const dist = nextRunTimestamp - now;
+    
+    if (dist < 0) {
+        display.innerText = "Running Now!";
+        setTimeout(fetchSchedulerStatus, 10000);
+        return;
+    }
+    
+    const h = Math.floor((dist % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const m = Math.floor((dist % (1000 * 60 * 60)) / (1000 * 60));
+    const s = Math.floor((dist % (1000 * 60)) / 1000);
+    
+    display.innerText = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+fetchSchedulerStatus();
+setInterval(updateCountdown, 1000);
+
+</script>
+{% endblock %}

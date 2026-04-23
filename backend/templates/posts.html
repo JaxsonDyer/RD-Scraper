@@ -1,0 +1,118 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Scraped Posts</h1>
+    <p>Dive deep into individual post performance metrics.</p>
+</div>
+
+<div class="filter-section fade-in">
+    <form method="GET" action="{{ url_for('posts') }}" class="filter-form">
+        <label for="username">Filter by Account:</label>
+        <div class="select-wrapper">
+            <select name="username" id="username" onchange="this.form.submit()">
+                <option value="">All Accounts</option>
+                {% for u in users %}
+                <option value="{{ u.username }}" {% if selected_username == u.username %}selected{% endif %}>
+                    @{{ u.username }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if selected_username %}
+            <a href="{{ url_for('posts') }}" class="btn-clear">Clear Filter</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="table-container fade-in">
+    <table>
+        <thead>
+            <tr>
+                <th>Account</th>
+                <th>Type</th>
+                <th class="col-caption">Caption</th>
+                <th>Likes</th>
+                <th>Comments</th>
+                <th>Views</th>
+                <th>Posted Date</th>
+                <th>Scraped Date</th>
+                <th>ID</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for post in posts %}
+            <tr>
+                <td class="primary-col">@{{ post.username }}</td>
+                <td>
+                    {% if post.is_video %}
+                        <span class="badge badge-video">Video</span>
+                    {% else %}
+                        <span class="badge badge-photo">Photo</span>
+                    {% endif %}
+                </td>
+                <td class="caption-text">{{ post.caption }}</td>
+                <td class="num-col">{{ "{:,}".format(post.likes) if post.likes else "0" }}</td>
+                <td class="num-col">{{ "{:,}".format(post.comments) if post.comments else "0" }}</td>
+                <td class="num-col">{{ "{:,}".format(post.views) if post.views else "—" }}</td>
+                <td class="date-col">{{ post.posted_timestamp.strftime('%b %d, %Y') if post.posted_timestamp else "—" }}</td>
+                <td class="date-col" id="scrape-date-{{ post.shortcode }}">{{ post.scraped_timestamp.strftime('%b %d, %Y %H:%M') if post.scraped_timestamp else "legacy" }}</td>
+                <td class="code-col">{{ post.shortcode }}</td>
+                <td>
+                    <button class="btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" id="btn-{{ post.shortcode }}" onclick="rescrapePost('{{ post.shortcode }}')">Rescrape</button>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="10" class="empty-state">No posts found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function rescrapePost(shortcode) {
+    const btn = document.getElementById('btn-' + shortcode);
+    const dateCell = document.getElementById('scrape-date-' + shortcode);
+    
+    // Store original text
+    const originalText = btn.innerText;
+    btn.innerText = "Syncing...";
+    btn.disabled = true;
+    
+    try {
+        const res = await fetch('/api/rescrape-post', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ shortcode: shortcode })
+        });
+        
+        const data = await res.json();
+        if(data.success) {
+            btn.innerText = "Done";
+            btn.style.color = "#34d399"; 
+            
+            // Just update the status locally to avoid page refresh, standard UI behavior
+            const now = new Date();
+            dateCell.innerText = "Just now";
+            dateCell.style.color = "#34d399";
+        } else {
+            console.error(data.error);
+            btn.innerText = "Failed";
+            btn.style.color = "#fb7185";
+        }
+    } catch (e) {
+        btn.innerText = "Error";
+        console.error(e);
+    }
+    
+    setTimeout(() => {
+        btn.innerText = originalText;
+        btn.disabled = false;
+        btn.style.color = ""; // reset
+    }, 4000);
+}
+</script>
+{% endblock %}

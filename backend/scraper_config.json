@@ -1,0 +1,16 @@
+{
+  "target_accounts": [
+    "madhatters.rd",
+    "reddeer",
+    "reddeervibin",
+    "reddeervtv",
+    "reddeerpolytechnic"
+  ],
+  "daily_run_time": "00:00",
+  "incremental_post_limit": 12,
+  "llm_config": {
+    "lookback_days": 7,
+    "max_posts": 10,
+    "model": "meta-llama/llama-3-8b-instruct:free"
+  }
+}

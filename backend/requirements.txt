@@ -1,0 +1,9 @@
+flask
+flask-cors
+mysql-connector-python
+python-dotenv
+openai
+requests
+apscheduler
+tzlocal
+docker
