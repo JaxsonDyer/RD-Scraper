@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from 'next/link';
-import { LayoutDashboard, FileText, Settings, Rabbit } from "lucide-react";
+import { DM_Sans, Geist_Mono } from "next/font/google";
+import { SidebarNav } from "@/components/sidebar-nav";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
 });
 
@@ -19,12 +18,6 @@ export const metadata: Metadata = {
   description: "Dashboard for RedDeer Social Metrics",
 };
 
-const navItems = [
-  { href: "/",        label: "Overview", Icon: LayoutDashboard },
-  { href: "/posts",   label: "Posts",    Icon: FileText },
-  { href: "/scraper", label: "Manager",  Icon: Settings },
-];
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -33,31 +26,19 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`dark ${dmSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex h-full min-h-screen text-foreground bg-background">
 
         {/* Sidebar */}
-        <aside className="w-60 flex-shrink-0 bg-card border-r border-border flex flex-col z-10">
-          <div className="px-5 py-5 border-b border-border flex items-center gap-2.5">
-            <Rabbit className="w-6 h-6 text-primary shrink-0" />
-            <h2 className="text-base font-semibold text-card-foreground tracking-tight">
+        <aside className="w-60 flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col z-10">
+          <div className="px-5 py-5 border-b border-sidebar-border">
+            <h2 className="text-base font-semibold text-sidebar-foreground tracking-tight">
               RedDeer Scraper
             </h2>
           </div>
 
-          <nav className="flex-1 px-3 py-4 space-y-0.5">
-            {navItems.map(({ href, label, Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors text-sm"
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                {label}
-              </Link>
-            ))}
-          </nav>
+          <SidebarNav />
         </aside>
 
         {/* Content Region */}

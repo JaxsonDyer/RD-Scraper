@@ -23,3 +23,30 @@ Thumbs.db
 .env.local
 .env.*.local
 *.env
+
+# TypeScript build artifacts
+*.tsbuildinfo
+next-env.d.ts
+
+# AI agent tooling (local config, caches, session state)
+.claude/
+.codex/
+.cursor/
+.cursorrules
+.impeccable/
+.aider*
+.windsurf/
+.continue/
+
+# Agent instruction files
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+PRODUCT.md
+DESIGN.md
+
+# Agent-authored scratch docs: every root-level .md is ignored by default.
+# To commit a new top-level doc, add an explicit exception below.
+/*.md
+!README.md
+!goals.md

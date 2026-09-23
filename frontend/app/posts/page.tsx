@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { Select, Label, Button, SelectValue, Popover, ListBox, ListBoxItem } from "react-aria-components";
 import {
   Heart, MessageCircle, Play, Image, Video,
-  ChevronDown, MousePointerClick, RefreshCw,
-  CheckCircle, XCircle, AlignLeft, CalendarDays, Clock, Hash,
+  ChevronDown, RefreshCw, CheckCircle, XCircle,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 type Post = {
   shortcode: string;
@@ -25,10 +25,9 @@ type UserRecord = {
   internal_ig_id: string;
 };
 
-function StatPill({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+function StatPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col items-center gap-1 min-w-[60px]">
-      <Icon className="w-4 h-4 text-muted-foreground" />
       <span className="text-base font-semibold text-foreground tabular-nums">{value}</span>
       <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
     </div>
@@ -95,7 +94,7 @@ export default function PostsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Scraped Posts</h1>
           <p className="text-muted-foreground mt-1">
-            {posts.length.toLocaleString()} post{posts.length !== 1 ? "s" : ""} — select any row to read its caption.
+            {posts.length.toLocaleString()} post{posts.length !== 1 ? "s" : ""}. Select any row to read its caption.
           </p>
         </div>
 
@@ -130,7 +129,7 @@ export default function PostsPage() {
       <div className="flex gap-4 h-[calc(100vh-220px)] min-h-[500px]">
 
         {/* LEFT: Compact list */}
-        <div className="w-80 flex-shrink-0 bg-card border border-border rounded-lg overflow-hidden flex flex-col">
+        <div className="w-80 flex-shrink-0 bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
           {/* Column headers */}
           <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-2.5 bg-muted/50 border-b border-border">
             <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Account</span>
@@ -167,12 +166,12 @@ export default function PostsPage() {
                         }
                       </div>
                       <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                        {post.posted_timestamp ? new Date(post.posted_timestamp).toLocaleDateString() : "—"}
+                        {post.posted_timestamp ? new Date(post.posted_timestamp).toLocaleDateString() : "Not recorded"}
                       </div>
                     </div>
                     <span className="text-xs text-muted-foreground tabular-nums text-right">{post.likes?.toLocaleString() ?? "0"}</span>
                     <span className="text-xs text-muted-foreground tabular-nums text-right">{post.comments?.toLocaleString() ?? "0"}</span>
-                    <span className="w-10 text-xs text-muted-foreground tabular-nums text-right">{post.views ? post.views.toLocaleString() : "—"}</span>
+                    <span className="w-10 text-xs text-muted-foreground tabular-nums text-right">{post.views ? post.views.toLocaleString() : "N/A"}</span>
                   </div>
                 </button>
               ))}
@@ -181,12 +180,9 @@ export default function PostsPage() {
         </div>
 
         {/* RIGHT: Detail panel */}
-        <div className="flex-1 bg-card border border-border rounded-lg overflow-hidden flex flex-col">
+        <div className="flex-1 bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
           {!selectedPost ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 p-8">
-              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                <MousePointerClick className="w-5 h-5 text-muted-foreground" />
-              </div>
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
               <p className="text-muted-foreground text-sm">Select a post from the list to view its details</p>
             </div>
           ) : (
@@ -194,18 +190,11 @@ export default function PostsPage() {
               {/* Detail header */}
               <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  {selectedPost.is_video
-                    ? <Video className="w-4 h-4 text-destructive shrink-0" />
-                    : <Image className="w-4 h-4 text-primary shrink-0" />
-                  }
                   <span className="font-semibold text-foreground">@{selectedPost.username}</span>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded border ${
-                    selectedPost.is_video
-                      ? "bg-destructive/15 text-destructive border-destructive/25"
-                      : "bg-primary/15 text-primary border-primary/25"
-                  }`}>
+                  <Badge>
+                    {selectedPost.is_video ? <Video /> : <Image />}
                     {selectedPost.is_video ? "Video" : "Photo"}
-                  </span>
+                  </Badge>
                 </div>
                 <Button
                   isDisabled={rescrapeState === "syncing"}
@@ -228,29 +217,27 @@ export default function PostsPage() {
 
               {/* Stats row */}
               <div className="px-6 py-4 border-b border-border flex items-center gap-6">
-                <StatPill icon={Heart} label="Likes" value={(selectedPost.likes ?? 0).toLocaleString()} />
+                <StatPill label="Likes" value={(selectedPost.likes ?? 0).toLocaleString()} />
                 <div className="w-px h-10 bg-border" />
-                <StatPill icon={MessageCircle} label="Comments" value={(selectedPost.comments ?? 0).toLocaleString()} />
+                <StatPill label="Comments" value={(selectedPost.comments ?? 0).toLocaleString()} />
                 <div className="w-px h-10 bg-border" />
-                <StatPill icon={Play} label="Views" value={selectedPost.views ? selectedPost.views.toLocaleString() : "—"} />
+                <StatPill label="Views" value={selectedPost.views ? selectedPost.views.toLocaleString() : "N/A"} />
                 <div className="flex-1" />
                 <div className="text-right space-y-1">
                   <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
-                    <CalendarDays className="w-3 h-3" />
                     <span>Posted: </span>
                     <span className="text-foreground font-medium">
-                      {selectedPost.posted_timestamp ? new Date(selectedPost.posted_timestamp).toDateString() : "—"}
+                      {selectedPost.posted_timestamp ? new Date(selectedPost.posted_timestamp).toDateString() : "Not recorded"}
                     </span>
                   </div>
                   <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
-                    <Clock className="w-3 h-3" />
                     <span>Scraped: </span>
                     <span className="text-foreground font-medium">
                       {selectedPost.scraped_timestamp ? new Date(selectedPost.scraped_timestamp).toLocaleString() : "legacy"}
                     </span>
                   </div>
                   <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground font-mono">
-                    <Hash className="w-3 h-3" />
+                    <span className="font-sans">ID:</span>
                     {selectedPost.shortcode}
                   </div>
                 </div>
@@ -258,8 +245,7 @@ export default function PostsPage() {
 
               {/* Caption */}
               <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <AlignLeft className="w-3.5 h-3.5 text-muted-foreground" />
+                <div className="mb-3">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Caption</p>
                 </div>
                 {selectedPost.caption ? (

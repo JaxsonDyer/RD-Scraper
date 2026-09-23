@@ -2,7 +2,7 @@ import os
 import json
 import threading
 from openai import OpenAI
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from flask import Flask, g, request, jsonify
 from flask_cors import CORS
 import mysql.connector
@@ -30,6 +30,29 @@ llm_client = OpenAI(
 
 # Scheduler Globals
 scheduler = BackgroundScheduler(timezone=str(get_localzone()))
+initialization_lock = threading.Lock()
+ai_generation_lock = threading.Lock()
+ai_status_lock = threading.Lock()
+ai_runtime_status = {
+    "state": "idle",
+    "active_model": None,
+    "started_at": None,
+    "completed_at": None,
+    "error": None,
+}
+
+def update_ai_status(**changes):
+    with ai_status_lock:
+        ai_runtime_status.update(changes)
+
+def get_ai_runtime_status():
+    with ai_status_lock:
+        return dict(ai_runtime_status)
+
+def utc_timestamp(value):
+    if value is None:
+        return None
+    return value.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
 def get_db():
     if 'db' not in g:
@@ -37,6 +60,11 @@ def get_db():
             host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME
         )
     return g.db
+
+@app.errorhandler(mysql.connector.Error)
+def handle_database_error(error):
+    print(f"Database error: {error}")
+    return jsonify({"error": "Database is unavailable. Check that MySQL is running."}), 503
 
 @app.teardown_appcontext
 def close_db(error):
@@ -47,13 +75,31 @@ def close_db(error):
 # --- RESILIENCE CATCHUP & SCHEDULER SYNC LOGIC ---
 
 def generate_insights_logic():
-    if not llm_client:
-        return {"error": "OpenRouter API key not configured"}
+    if not ai_generation_lock.acquire(blocking=False):
+        return {"error": "AI insight generation is already running"}
+
+    db = None
+    cursor = None
+    model = None
+    started_at = datetime.now().astimezone().isoformat()
+    update_ai_status(
+        state="running",
+        active_model=None,
+        started_at=started_at,
+        completed_at=None,
+        error=None,
+    )
+
     try:
+        if not llm_client:
+            raise RuntimeError("OpenRouter API key not configured")
+
         with open("scraper_config.json", "r") as f:
             config = json.load(f)
         llm_config = config.get("llm_config", {"lookback_days": 7, "max_posts": 10, "model": "google/gemini-2.5-flash"})
-        
+        model = llm_config["model"]
+        update_ai_status(active_model=model)
+
         db = mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME)
         cursor = db.cursor(dictionary=True)
         
@@ -93,7 +139,7 @@ Return a STRICT JSON response matching this exact schema:
 """
 
         response = llm_client.chat.completions.create(
-            model=llm_config["model"],
+            model=model,
             messages=[
                 {"role": "system", "content": "You are a professional social media analyst AI."},
                 {"role": "user", "content": prompt}
@@ -103,17 +149,37 @@ Return a STRICT JSON response matching this exact schema:
         
         result_json_str = response.choices[0].message.content
         result_json = json.loads(result_json_str)
-        
-        cursor.execute("REPLACE INTO ai_cache (id, data) VALUES (1, %s)", (json.dumps(result_json),))
+
+        refreshed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        cursor.execute(
+            "REPLACE INTO ai_cache (id, data, updated_at) VALUES (1, %s, %s)",
+            (json.dumps(result_json), refreshed_at),
+        )
         db.commit()
-            
-        cursor.close()
-        db.close()
+
+        update_ai_status(
+            state="success",
+            active_model=model,
+            completed_at=datetime.now().astimezone().isoformat(),
+            error=None,
+        )
         return result_json
-        
+
     except Exception as e:
         print("AI INSIGHTS GENERATION ERROR:", e)
+        update_ai_status(
+            state="error",
+            active_model=model,
+            completed_at=datetime.now().astimezone().isoformat(),
+            error=str(e),
+        )
         return {"error": str(e)}
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if db is not None:
+            db.close()
+        ai_generation_lock.release()
 
 def background_scrape_and_insights(force_date=None):
     scraper_backend.run_daily_scrape(force_date)
@@ -174,26 +240,23 @@ def execute_resilience_check():
 # Hook on initial startup before the first request
 @app.before_request
 def initialize():
-    # Utilizing app.config to guarantee it only runs strictly one time across Flask threads
-    if not app.config.get('SCHEDULER_INIT'):
+    if app.config.get('SCHEDULER_INIT'):
+        return
+
+    # Multiple API requests arrive together when the UI loads. The lock prevents
+    # each request from starting its own scheduler and catch-up scrape.
+    with initialization_lock:
+        if app.config.get('SCHEDULER_INIT'):
+            return
+
         print("⚙️ Initializing Scraper Background Manager...")
-        setup_scheduler()
-        execute_resilience_check()
-        # Run any pending DB migrations
+        conn = None
         try:
             conn = mysql.connector.connect(
                 host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME
             )
             cur = conn.cursor()
-            cur.execute("ALTER TABLE daily_stats ADD COLUMN scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP")
-            conn.commit()
-            cur.close()
-            print("✅ Migration: added scraped_at column to daily_stats")
-        except Exception:
-            pass  # Column already exists or table not yet created
-            
-        try:
-            cur = conn.cursor()
+            scraper_backend.setup_database(cur)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS ai_cache (
                     id INT PRIMARY KEY DEFAULT 1,
@@ -204,12 +267,14 @@ def initialize():
             conn.commit()
             cur.close()
         except Exception as e:
-            print("Cache migration error:", e)
+            print("Database initialization error:", e)
         finally:
-            try: conn.close()
-            except: pass
-            
+            if conn is not None:
+                conn.close()
+
+        setup_scheduler()
         app.config['SCHEDULER_INIT'] = True
+        execute_resilience_check()
 
 # --- EXISTING ROUTES ---
 
@@ -358,7 +423,8 @@ def save_config():
     new_config = {
         "target_accounts": targets,
         "daily_run_time": data["daily_run_time"],
-        "incremental_post_limit": int(data.get("incremental_post_limit", 12)),
+        "post_lookback_days": max(1, min(int(data.get("post_lookback_days", 30)), 3650)),
+        "incremental_post_limit": max(1, min(int(data.get("incremental_post_limit", 250)), 5000)),
         "llm_config": data.get("llm_config", {
             "lookback_days": 7,
             "max_posts": 10,
@@ -438,10 +504,15 @@ def deep_scrape():
     username = data.get('username')
     limit = int(data.get('limit', 12))
     delay = int(data.get('delay', 5))
+    days_back = data.get('days_back')
+    days_back = max(1, int(days_back)) if days_back else None
     
     if not username: return jsonify({"success": False}), 400
     
-    threading.Thread(target=scraper_backend.run_deep_scrape, args=(username, limit, delay)).start()
+    threading.Thread(
+        target=scraper_backend.run_deep_scrape,
+        args=(username, limit, delay, days_back),
+    ).start()
     return jsonify({"success": True, "message": f"Deep scrape for @{username} started in the background."})
 
 @app.route('/api/rescrape-post', methods=['POST'])
@@ -475,23 +546,48 @@ def ai_insights():
     try:
         db = get_db()
         cursor = db.cursor(dictionary=True)
-        cursor.execute("SELECT data FROM ai_cache WHERE id = 1")
+        cursor.execute("SELECT data, updated_at FROM ai_cache WHERE id = 1")
         res = cursor.fetchone()
         
         if res and res['data']:
             if isinstance(res['data'], str):
-                return jsonify(json.loads(res['data']))
-            return jsonify(res['data'])
+                insights = json.loads(res['data'])
+            else:
+                insights = dict(res['data'])
+
+            insights["_meta"] = {
+                "last_refreshed": utc_timestamp(res.get('updated_at')),
+            }
+            return jsonify(insights)
             
         return jsonify({"error": "No insights generated yet. Please dispatch generation via manager."}), 404
     except Exception as e:
         print("AI Fetch Error:", e)
         return jsonify({"error": "Could not read ai cache"}), 500
 
+@app.route('/api/ai-status', methods=['GET'])
+def ai_status():
+    with open("scraper_config.json", "r") as f:
+        config = json.load(f)
+
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    cursor.execute("SELECT updated_at FROM ai_cache WHERE id = 1")
+    cache_row = cursor.fetchone()
+
+    status = get_ai_runtime_status()
+    status.update({
+        "configured_model": config.get("llm_config", {}).get("model"),
+        "last_refreshed": utc_timestamp(cache_row.get('updated_at')) if cache_row else None,
+    })
+    return jsonify(status)
+
 @app.route('/api/generate-insights', methods=['POST'])
 def generate_insights_endpoint():
     try:
-        threading.Thread(target=generate_insights_logic).start()
+        if ai_generation_lock.locked():
+            return jsonify({"success": False, "error": "AI insight generation is already running."}), 409
+        threading.Thread(target=generate_insights_logic, daemon=True).start()
         return jsonify({"success": True, "message": "Insight generation started."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

@@ -3,6 +3,24 @@ import time
 import docker
 from docker.errors import DockerException, NotFound
 
+MYSQL_PORT = 3306
+MYSQL_STARTUP_TIMEOUT_SECONDS = 60
+
+def _wait_for_mysql(container, password: str) -> bool:
+    """Wait until MySQL is accepting connections inside the container."""
+    deadline = time.monotonic() + MYSQL_STARTUP_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        container.reload()
+        if container.status == 'running':
+            result = container.exec_run(
+                ["mysqladmin", "ping", "--user=root", "--silent"],
+                environment={"MYSQL_PWD": password},
+            )
+            if result.exit_code == 0:
+                return True
+        time.sleep(2)
+    return False
+
 def validate_docker_env(container_name: str) -> bool:
     """
     Validates that:
@@ -28,9 +46,12 @@ def validate_docker_env(container_name: str) -> bool:
         if container.status != 'running':
             print(f"⚠️ MySQL Container '{container_name}' exists but is stopped. Starting it...")
             container.start()
-            print("⏳ Waiting 10 seconds for MySQL to initialize...")
-            time.sleep(10)
-            
+
+        print("⏳ Waiting for MySQL to accept connections...")
+        if not _wait_for_mysql(container, os.environ.get('DB_PASSWORD', 'root')):
+            print(f"❌ MySQL Container '{container_name}' did not become ready in time.")
+            return False
+
         print(f"✅ Docker checks passed. Container '{container_name}' is running.")
         return True
             
@@ -41,11 +62,12 @@ def validate_docker_env(container_name: str) -> bool:
         db_name = os.environ.get('DB_NAME', 'scraper_db')
         
         env_vars = {
-            "MYSQL_ROOT_PASSWORD": db_password, 
+            "MYSQL_ROOT_PASSWORD": db_password,
             "MYSQL_DATABASE": db_name,
-            "MYSQL_USER": db_user,
-            "MYSQL_PASSWORD": db_password,
         }
+        if db_user != 'root':
+            env_vars["MYSQL_USER"] = db_user
+            env_vars["MYSQL_PASSWORD"] = db_password
         
         try:
             print(f"⏳ Downloading/Running mysql:8.0 image... this might take a minute.")
@@ -53,11 +75,14 @@ def validate_docker_env(container_name: str) -> bool:
                 "mysql:8.0",
                 name=container_name,
                 environment=env_vars,
-                ports={'3306/tcp': 3306},
+                ports={f'{MYSQL_PORT}/tcp': ('127.0.0.1', MYSQL_PORT)},
                 detach=True
             )
-            print("⏳ Waiting 15 seconds for new MySQL instance to initialize...")
-            time.sleep(15)
+            container = client.containers.get(container_name)
+            print("⏳ Waiting for the new MySQL instance to initialize...")
+            if not _wait_for_mysql(container, db_password):
+                print(f"❌ MySQL Container '{container_name}' did not become ready in time.")
+                return False
             print(f"✅ Created and started container '{container_name}'.")
             return True
         except Exception as e:
@@ -72,4 +97,4 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     name = os.getenv("MYSQL_CONTAINER_NAME", "my_mysql_db")
-    validate_docker_env(name)
+    raise SystemExit(0 if validate_docker_env(name) else 1)

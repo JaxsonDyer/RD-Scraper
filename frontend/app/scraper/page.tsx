@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import { Button, Input, TextField, Label, Checkbox } from "react-aria-components";
 import {
-  Timer, CalendarDays, Settings2, Database, RefreshCw, Save,
-  PlusCircle, Trash2, UserSearch, CheckSquare, Zap, Search, FileSearch, Sparkles, Bot
+  Timer, RefreshCw,
+  AlertCircle, CheckCircle2, Clock3
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 type Config = {
   target_accounts: string[];
   daily_run_time: string;
+  post_lookback_days: number;
   incremental_post_limit: number;
   llm_config?: {
     lookback_days: number;
@@ -23,6 +25,16 @@ type LlmModel = {
   name: string;
 };
 
+type AiStatus = {
+  state: "idle" | "running" | "success" | "error";
+  configured_model: string | null;
+  active_model: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  last_refreshed: string | null;
+  error: string | null;
+};
+
 export default function ScraperPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,7 +43,8 @@ export default function ScraperPage() {
   const [targetAccounts, setTargetAccounts] = useState<string[]>([]);
   const [newAccount, setNewAccount] = useState("");
   const [dailyTime, setDailyTime] = useState("00:00");
-  const [incrementalLimit, setIncrementalLimit] = useState(12);
+  const [postLookbackDays, setPostLookbackDays] = useState(30);
+  const [incrementalLimit, setIncrementalLimit] = useState(250);
   const [configSaving, setConfigSaving] = useState(false);
   const [forceScraping, setForceScraping] = useState(false);
 
@@ -41,6 +54,7 @@ export default function ScraperPage() {
   const [llmMaxPosts, setLlmMaxPosts] = useState(10);
   const [llmModelId, setLlmModelId] = useState("google/gemini-2.5-flash");
   const [generatingInsights, setGeneratingInsights] = useState(false);
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
 
   // Deep Scrape Form
   const [deepUsername, setDeepUsername] = useState("");
@@ -71,7 +85,8 @@ export default function ScraperPage() {
         setConfig(d);
         setTargetAccounts(d.target_accounts || []);
         setDailyTime(d.daily_run_time || "00:00");
-        setIncrementalLimit(d.incremental_post_limit || 12);
+        setPostLookbackDays(d.post_lookback_days || 30);
+        setIncrementalLimit(d.incremental_post_limit || 250);
         
         if (d.llm_config) {
           setLlmLookbackDays(d.llm_config.lookback_days || 7);
@@ -81,6 +96,18 @@ export default function ScraperPage() {
         
         setLoading(false);
       });
+  }, []);
+
+  useEffect(() => {
+    const pollAiStatus = () => {
+      fetch("http://127.0.0.1:5000/api/ai-status")
+        .then(r => r.json())
+        .then(d => setAiStatus(d))
+        .catch(() => {});
+    };
+    pollAiStatus();
+    const interval = setInterval(pollAiStatus, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   // Poll scheduler status every 5s, then tick countdown every 1s
@@ -122,6 +149,7 @@ export default function ScraperPage() {
         body: JSON.stringify({
           target_accounts: targetAccounts.join(", "),
           daily_run_time: dailyTime,
+          post_lookback_days: postLookbackDays,
           incremental_post_limit: incrementalLimit,
           llm_config: {
             lookback_days: llmLookbackDays,
@@ -149,11 +177,13 @@ export default function ScraperPage() {
   const generateInsights = async () => {
     setGeneratingInsights(true);
     try {
-      await fetch("http://127.0.0.1:5000/api/generate-insights", { method: "POST" });
-      alert("Manual intelligence generation dispatched to background!");
+      const response = await fetch("http://127.0.0.1:5000/api/generate-insights", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to start intelligence generation");
+      setAiStatus(current => current ? { ...current, state: "running", error: null } : current);
     } catch (e) {
       console.error(e);
-      alert("Failed to hit generation endpoint.");
+      alert(e instanceof Error ? e.message : "Failed to start intelligence generation.");
     } finally {
       setGeneratingInsights(false);
     }
@@ -226,7 +256,7 @@ export default function ScraperPage() {
       {/* Scheduler countdown + last run */}
       <section>
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Scheduler Status</h2>
-        <div className="bg-card border border-border rounded-lg p-6">
+        <div className="card-surface border border-border rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-start gap-4">
               <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
@@ -234,7 +264,7 @@ export default function ScraperPage() {
               </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Next Scheduled Scrape</p>
-                <p className="text-4xl font-mono font-bold text-primary tracking-tight">{countdown || "—"}</p>
+                <p className="text-4xl font-mono font-bold text-primary tracking-tight">{countdown || "Pending"}</p>
                 {nextRunTime && (
                   <p className="text-xs text-muted-foreground mt-1">{nextRunTime.toLocaleString()}</p>
                 )}
@@ -242,8 +272,7 @@ export default function ScraperPage() {
             </div>
             <div className="text-right">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Last Run</p>
-              <p className="text-sm font-medium text-foreground flex items-center justify-end gap-1.5">
-                <CalendarDays className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-sm font-medium text-foreground">
                 {lastRunDate ? new Date(lastRunDate).toDateString() : "Never"}
               </p>
             </div>
@@ -255,7 +284,7 @@ export default function ScraperPage() {
       {scrapeRuns.length > 0 && (
         <section>
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Run History</h2>
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
+          <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
             <div className="max-h-72 overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm border-b border-border">
@@ -284,7 +313,7 @@ export default function ScraperPage() {
                             <span className={`font-medium tabular-nums ${isLatest ? "text-foreground" : "text-muted-foreground"}`}>
                               {new Date(run.run_date).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                             </span>
-                            {isLatest && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/25">Latest</span>}
+                            {isLatest && <Badge>Latest</Badge>}
                           </div>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground tabular-nums text-xs">{start.toLocaleTimeString()}</td>
@@ -294,7 +323,7 @@ export default function ScraperPage() {
                         </td>
                         <td className="py-3 px-4 text-right tabular-nums text-foreground font-medium">{run.accounts_scraped}</td>
                         <td className="py-3 px-4 text-right">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">✓ Complete</span>
+                          <Badge>Complete</Badge>
                         </td>
                       </tr>
                     );
@@ -310,25 +339,20 @@ export default function ScraperPage() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
         {/* Global Configuration */}
-        <section className="bg-card border border-border rounded-lg overflow-hidden flex flex-col">
+        <section className="bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
           <div className="px-6 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Settings2 className="w-4 h-4 text-muted-foreground" />
-              Global Configuration
-            </h2>
+            <h2 className="text-sm font-semibold text-foreground">Global Configuration</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Automated schedule and target management.</p>
           </div>
 
           <div className="p-6 space-y-5 flex-1">
             {/* Target accounts */}
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wider flex items-center gap-1.5">
-                <UserSearch className="w-3.5 h-3.5" />Target Accounts
-              </Label>
+              <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Target Accounts</Label>
               <div className="flex gap-2">
                 <Input value={newAccount} onChange={e => setNewAccount(e.target.value)} onKeyDown={(e) => { if(e.key === "Enter") addAccount(); }} placeholder="Add account e.g. reddeer" className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none flex-1" />
                 <Button onPress={addAccount} className="inline-flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium text-sm py-2 px-3 rounded-md transition-colors outline-none cursor-pointer">
-                  <PlusCircle className="w-3.5 h-3.5" />Add
+                  Add
                 </Button>
               </div>
               {targetAccounts.length > 0 ? (
@@ -346,7 +370,7 @@ export default function ScraperPage() {
                           <td className="py-2 px-3 font-medium text-foreground text-sm">@{account}</td>
                           <td className="py-2 px-3 text-right">
                             <button onClick={() => removeAccount(account)} className="inline-flex items-center gap-1 text-destructive hover:text-destructive/80 text-xs font-medium cursor-pointer">
-                              <Trash2 className="w-3 h-3" />Remove
+                              Remove
                             </button>
                           </td>
                         </tr>
@@ -360,25 +384,90 @@ export default function ScraperPage() {
             </div>
 
             {/* Schedule fields */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <TextField value={dailyTime} onChange={setDailyTime} className="flex flex-col gap-1">
                 <Label className="text-xs text-muted-foreground font-medium">Daily Scrape Time</Label>
                 <Input className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none" placeholder="00:00" />
               </TextField>
-              <TextField value={incrementalLimit.toString()} onChange={v => setIncrementalLimit(parseInt(v) || 0)} className="flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground font-medium">Incremental Limit</Label>
-                <Input type="number" className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
+              <TextField value={postLookbackDays.toString()} onChange={v => setPostLookbackDays(parseInt(v) || 1)} className="flex flex-col gap-1">
+                <Label className="text-xs text-muted-foreground font-medium">Post Lookback (Days)</Label>
+                <Input type="number" min={1} max={3650} className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
+              </TextField>
+              <TextField value={incrementalLimit.toString()} onChange={v => setIncrementalLimit(parseInt(v) || 1)} className="flex flex-col gap-1">
+                <Label className="text-xs text-muted-foreground font-medium">Max Posts / Account</Label>
+                <Input type="number" min={1} max={5000} className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
               </TextField>
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              Each account is paginated back to the selected date, with the post limit acting as a safety cap.
+            </p>
           </div>
 
           {/* AI Intelligence Configuration */}
           <div className="px-6 py-4 border-t border-b border-border bg-muted/10">
-            <h3 className="text-xs font-semibold text-foreground flex items-center gap-2 mb-4">
-              <Sparkles className="w-3.5 h-3.5 text-primary" />
-              AI Intelligence Pipeline
-            </h3>
+            <h3 className="text-xs font-semibold text-foreground mb-4">AI Intelligence Pipeline</h3>
             <div className="space-y-4">
+              <div className="rounded-md border border-border bg-background/70 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    {aiStatus?.state === "running" ? (
+                      <RefreshCw className="w-4 h-4 text-primary animate-spin" />
+                    ) : aiStatus?.state === "error" ? (
+                      <AlertCircle className="w-4 h-4 text-destructive" />
+                    ) : aiStatus?.state === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                      <Clock3 className="w-4 h-4 text-muted-foreground" />
+                    )}
+                    <span className="text-sm font-semibold text-foreground">
+                      {aiStatus?.state === "running" ? "Generating" :
+                       aiStatus?.state === "error" ? "Generation Failed" :
+                       aiStatus?.state === "success" ? "Ready" : "Idle"}
+                    </span>
+                  </div>
+                  <Badge
+                    variant={
+                      aiStatus?.state === "error" ? "destructive" :
+                      aiStatus?.state === "success" ? "success" :
+                      aiStatus?.state === "running" ? "outline" : "muted"
+                    }
+                    className="uppercase tracking-wider"
+                  >
+                    {aiStatus?.state || "loading"}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <p className="text-muted-foreground">Last successful refresh</p>
+                    <p className="text-foreground font-medium mt-0.5">
+                      {aiStatus?.last_refreshed ? new Date(aiStatus.last_refreshed).toLocaleString() : "Never"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Model</p>
+                    <p className="text-foreground font-medium mt-0.5 break-all">
+                      {aiStatus?.active_model || aiStatus?.configured_model || llmModelId}
+                    </p>
+                  </div>
+                  {aiStatus?.started_at && (
+                    <div>
+                      <p className="text-muted-foreground">Started</p>
+                      <p className="text-foreground font-medium mt-0.5">{new Date(aiStatus.started_at).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {aiStatus?.completed_at && (
+                    <div>
+                      <p className="text-muted-foreground">Completed</p>
+                      <p className="text-foreground font-medium mt-0.5">{new Date(aiStatus.completed_at).toLocaleString()}</p>
+                    </div>
+                  )}
+                </div>
+                {aiStatus?.error && (
+                  <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded p-2 break-words">
+                    {aiStatus.error}
+                  </p>
+                )}
+              </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs text-muted-foreground font-medium">Model Selection</Label>
                 <select 
@@ -403,9 +492,9 @@ export default function ScraperPage() {
               </div>
             </div>
             <div className="pt-4 flex justify-end">
-              <Button onPress={generateInsights} isDisabled={generatingInsights} className="inline-flex items-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 font-medium text-xs py-1.5 px-4 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
-                {generatingInsights ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
-                {generatingInsights ? "Dispatching..." : "Regenerate Intelligence"}
+              <Button onPress={generateInsights} isDisabled={generatingInsights || aiStatus?.state === "running"} className="inline-flex items-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 font-medium text-xs py-1.5 px-4 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
+                {(generatingInsights || aiStatus?.state === "running") && <RefreshCw className="w-3 h-3 animate-spin" />}
+                {generatingInsights ? "Dispatching..." : aiStatus?.state === "running" ? "Generating..." : "Regenerate Intelligence"}
               </Button>
             </div>
           </div>
@@ -413,23 +502,20 @@ export default function ScraperPage() {
           {/* Actions pinned at bottom */}
           <div className="px-6 py-4 border-t border-border flex gap-3 bg-muted/20">
             <Button onPress={saveConfig} isDisabled={configSaving} className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm py-2 px-5 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
-              {configSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              {configSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               {configSaving ? "Saving..." : "Save"}
             </Button>
             <Button onPress={forceScrape} isDisabled={forceScraping} className="inline-flex items-center gap-2 bg-background border border-input hover:bg-accent text-foreground font-medium text-sm py-2 px-5 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
-              {forceScraping ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              {forceScraping && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               {forceScraping ? "Dispatching..." : "Force Scrape"}
             </Button>
           </div>
         </section>
 
         {/* Deep Scrape Toolkit */}
-        <section className="bg-card border border-border rounded-lg overflow-hidden flex flex-col">
+        <section className="bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
           <div className="px-6 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Database className="w-4 h-4 text-muted-foreground" />
-              Deep Scrape Toolkit
-            </h2>
+            <h2 className="text-sm font-semibold text-foreground">Deep Scrape Toolkit</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Paginated extraction under rate limits for full account history.</p>
           </div>
 
@@ -440,7 +526,7 @@ export default function ScraperPage() {
                 <Input placeholder="e.g. reddeer" className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
               </TextField>
               <Button onPress={analyzeAccount} isDisabled={analyzing || !deepUsername} className="inline-flex items-center gap-2 bg-background border border-input hover:bg-accent text-foreground font-medium text-sm py-2 px-4 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
-                {analyzing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                {analyzing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 {analyzing ? "..." : "Analyze"}
               </Button>
             </div>
@@ -448,12 +534,8 @@ export default function ScraperPage() {
             {maxPosts !== null && (
               <div className="p-4 bg-muted/30 rounded-md border border-border space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    <CheckSquare className="w-3.5 h-3.5 text-primary" />Analysis Complete
-                  </h3>
-                  <span className="flex items-center gap-1.5 text-primary text-xs font-semibold bg-primary/10 border border-primary/20 py-0.5 px-2.5 rounded-full">
-                    <FileSearch className="w-3 h-3" />{maxPosts} Posts
-                  </span>
+                  <h3 className="text-sm font-semibold text-foreground">Analysis Complete</h3>
+                  <Badge>{maxPosts} Posts</Badge>
                 </div>
                 
                 <TextField value={deepLimit.toString()} onChange={v => setDeepLimit(parseInt(v) || 0)} isDisabled={selectAll} className="flex flex-col gap-1">
@@ -487,7 +569,7 @@ export default function ScraperPage() {
                 </div>
 
                 <Button onPress={dispatchDeepScrape} isDisabled={deepScraping} className="w-full inline-flex items-center justify-center gap-2 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 font-medium text-sm py-2.5 px-6 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
-                  {deepScraping ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                  {deepScraping && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   {deepScraping ? "Dispatching..." : "Start Deep Scrape"}
                 </Button>
               </div>

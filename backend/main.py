@@ -16,6 +16,60 @@ DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME")
 MYSQL_CONTAINER_NAME = os.getenv("MYSQL_CONTAINER_NAME", "mysql-container")
+REQUEST_TIMEOUT_SECONDS = 30
+FEED_PAGE_SIZE = 50
+
+def _api_headers():
+    return {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
+
+def _extract_user(payload):
+    if not isinstance(payload, dict):
+        return {}
+    return payload.get("data", {}).get("user") or payload
+
+def _extract_timeline(payload):
+    user_data = _extract_user(payload)
+    if not isinstance(user_data, dict):
+        return {}
+    return user_data.get("edge_owner_to_timeline_media", {})
+
+def _fetch_profile(username):
+    response = requests.get(
+        f"https://{RAPIDAPI_HOST}/profile",
+        headers=_api_headers(),
+        params={"username": username},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    payload = response.json() if response.content else {}
+    return response, payload, _extract_user(payload)
+
+def _fetch_feed_page(user_id, count, end_cursor=None):
+    params = {"id": user_id, "count": count}
+    if end_cursor:
+        params["end_cursor"] = end_cursor
+    response = requests.get(
+        f"https://{RAPIDAPI_HOST}/user-feeds2",
+        headers=_api_headers(),
+        params=params,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    payload = response.json() if response.content else {}
+    return response, payload, _extract_timeline(payload)
+
+def _filter_edges_by_age(edges, cutoff_timestamp):
+    eligible = []
+    timestamps = []
+    for edge in edges:
+        timestamp = edge.get("node", {}).get("taken_at_timestamp")
+        if timestamp:
+            timestamps.append(timestamp)
+        if not timestamp or timestamp >= cutoff_timestamp:
+            eligible.append(edge)
+
+    # Only stop when the entire page is older than the cutoff. This avoids an
+    # older pinned post causing newer posts later in the page to be skipped.
+    page_is_before_cutoff = bool(timestamps) and max(timestamps) < cutoff_timestamp
+    return eligible, page_is_before_cutoff
 
 def get_db_connection():
     try:
@@ -68,7 +122,7 @@ def setup_database(cursor):
         )
     """)
 
-def process_account_data(db_conn, cursor, data: dict, force_date=None):
+def process_account_data(db_conn, cursor, data: dict, force_date=None, total_posts_override=None):
     """Processes parsed JSON data from IG into the MySQL database mapping."""
     internal_ig_id = data.get("id")
     username = data.get("username")
@@ -82,7 +136,9 @@ def process_account_data(db_conn, cursor, data: dict, force_date=None):
     # Extract stats
     followers = data.get("edge_followed_by", {}).get("count")
     following = data.get("edge_follow", {}).get("count")
-    total_posts = data.get("edge_owner_to_timeline_media", {}).get("count")
+    total_posts = total_posts_override
+    if total_posts is None:
+        total_posts = data.get("edge_owner_to_timeline_media", {}).get("count")
     
     # Insert Daily Stats, supporting catchups
     now = datetime.now()
@@ -109,9 +165,12 @@ def bulk_insert_posts(db_conn, cursor, internal_ig_id, edges):
     for edge in edges:
         node = edge.get("node", {})
         shortcode = node.get("shortcode")
+        if not shortcode:
+            continue
         caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
         caption = caption_edges[0].get("node", {}).get("text", "") if caption_edges else ""
-        likes = node.get("edge_liked_by", {}).get("count", 0)
+        likes_node = node.get("edge_liked_by") or node.get("edge_media_preview_like") or {}
+        likes = likes_node.get("count", 0)
         comments = node.get("edge_media_to_comment", {}).get("count", 0)
         is_video = node.get("is_video", False)
         views = node.get("video_view_count", 0) if is_video else 0
@@ -131,48 +190,121 @@ def _load_config():
         return json.load(f)
 
 def run_daily_scrape(force_date=None):
-    """Automated background task to scrape targets normally (no heavy pagination)."""
+    """Scrape each target's feed back to the configured age or safety limit."""
     if not docker_utils.validate_docker_env(MYSQL_CONTAINER_NAME):
-        return
+        return []
         
     config = _load_config()
     usernames = config.get("target_accounts", [])
+    lookback_days = max(1, int(config.get("post_lookback_days", 30)))
+    post_limit = max(1, int(config.get("incremental_post_limit", 250)))
+    cutoff_timestamp = int(time.time()) - (lookback_days * 86400)
     
     conn = get_db_connection()
-    if not conn: return
+    if not conn:
+        return []
     cursor = conn.cursor()
     setup_database(cursor)
-    
-    url = f"https://{RAPIDAPI_HOST}/profile"
-    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
-    
-    print(f"\n[Thread] Beginning incremental scrape for {len(usernames)} users...")
+
+    results = []
+    print(
+        f"\n[Thread] Scraping {len(usernames)} users up to {lookback_days} days back "
+        f"(maximum {post_limit} posts per account)..."
+    )
     for user in usernames:
-        response = requests.get(url, headers=headers, params={"username": user})
-        if response.status_code == 200:
-            data = response.json()
-            user_data = data.get("data", {}).get("user") or data
-            if user_data and user_data.get("id"):
+        result = {"username": user, "inserted": 0, "updated": 0, "status": "error"}
+        try:
+            profile_response, profile_payload, user_data = _fetch_profile(user)
+            if profile_response.status_code != 200:
+                result["message"] = f"Profile API returned HTTP {profile_response.status_code}"
+                print(f"❌ @{user}: {result['message']}")
+                results.append(result)
+                continue
+
+            internal_id = user_data.get("id") if isinstance(user_data, dict) else None
+            if not internal_id:
+                message = profile_payload.get("errorMessage") or profile_payload.get("message") or "Profile has no user ID"
+                result["message"] = message
+                print(f"❌ @{user}: {message}")
+                results.append(result)
+                continue
+
+            end_cursor = None
+            seen_cursors = set()
+            collected = 0
+            account_processed = False
+
+            while collected < post_limit:
+                page_size = min(FEED_PAGE_SIZE, post_limit - collected)
+                feed_response, feed_payload, timeline = _fetch_feed_page(internal_id, page_size, end_cursor)
+                if feed_response.status_code != 200:
+                    result["message"] = f"Feed API returned HTTP {feed_response.status_code}"
+                    print(f"❌ @{user}: {result['message']}")
+                    break
+
+                if not account_processed:
+                    process_account_data(
+                        conn,
+                        cursor,
+                        user_data,
+                        force_date,
+                        total_posts_override=timeline.get("count"),
+                    )
+                    account_processed = True
+
+                edges = timeline.get("edges", [])
+                eligible_edges, page_is_before_cutoff = _filter_edges_by_age(edges, cutoff_timestamp)
+                eligible_edges = eligible_edges[:post_limit - collected]
+                inserted, updated = bulk_insert_posts(conn, cursor, internal_id, eligible_edges)
+                result["inserted"] += inserted
+                result["updated"] += updated
+                collected += len(eligible_edges)
+
+                page_info = timeline.get("page_info", {})
+                next_cursor = page_info.get("end_cursor")
+                if (
+                    page_is_before_cutoff
+                    or not edges
+                    or not page_info.get("has_next_page")
+                    or not next_cursor
+                    or next_cursor in seen_cursors
+                ):
+                    break
+
+                seen_cursors.add(next_cursor)
+                end_cursor = next_cursor
+                time.sleep(1)
+
+            if not account_processed:
                 process_account_data(conn, cursor, user_data, force_date)
-                # Native profile endpoints yield 12 posts inside timeline.
-                edges = user_data.get("edge_owner_to_timeline_media", {}).get("edges", [])
-                i, u = bulk_insert_posts(conn, cursor, user_data.get("id"), edges)
-                print(f"   -> Inserted {i}, Updated {u} posts.")
+
+            if "message" not in result:
+                result["status"] = "ok"
+                result["message"] = f"Collected {collected} posts from the last {lookback_days} days"
+            print(
+                f"   -> @{user}: {result['message']} "
+                f"({result['inserted']} inserted, {result['updated']} updated)."
+            )
+            results.append(result)
+        except (requests.RequestException, ValueError) as error:
+            result["message"] = str(error)
+            print(f"❌ @{user}: {error}")
+            results.append(result)
+
     cursor.close()
     conn.close()
+    return results
 
 def fetch_account_count(username):
     """Fetches total posts purely for UI projection."""
-    url = f"https://{RAPIDAPI_HOST}/profile"
-    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
-    response = requests.get(url, headers=headers, params={"username": username})
-    if response.status_code == 200:
-        data = response.json()
-        user_data = data.get("data", {}).get("user") or data
-        return user_data.get("edge_owner_to_timeline_media", {}).get("count", 0)
+    response, _, user_data = _fetch_profile(username)
+    if response.status_code == 200 and user_data.get("id"):
+        feed_response, _, timeline = _fetch_feed_page(user_data["id"], 1)
+        if feed_response.status_code == 200:
+            return timeline.get("count", 0)
     return 0
 
-def run_deep_scrape(username, limit, delay):
+def run_deep_scrape(username, limit, delay, days_back=None):
     """Background task to paginate heavily and deep scrape backwards."""
     print(f"[Deep Scrape] Initializing for @{username} (Target Limit: {limit})")
     conn = get_db_connection()
@@ -180,37 +312,41 @@ def run_deep_scrape(username, limit, delay):
     cursor = conn.cursor()
     setup_database(cursor)
     
-    url = f"https://{RAPIDAPI_HOST}/profile"
-    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
-    
+    profile_response, profile_payload, user_data = _fetch_profile(username)
+    internal_id = user_data.get("id") if profile_response.status_code == 200 else None
+    if not internal_id:
+        message = profile_payload.get("errorMessage") or profile_payload.get("message") or "Profile not found"
+        print(f"❌ [Deep Scrape] @{username}: {message}")
+        cursor.close()
+        conn.close()
+        return
+
+    cutoff_timestamp = int(time.time()) - (max(1, days_back) * 86400) if days_back else None
     current_cursor = None
+    seen_cursors = set()
     posts_scraped = 0
-    scraped_internal_id = None
     
     while posts_scraped < limit:
-        # Build query
-        querystring = {"username": username}
-        if current_cursor:
-            querystring["max_id"] = current_cursor
-            
-        response = requests.get(url, headers=headers, params=querystring)
+        response, _, timeline = _fetch_feed_page(
+            internal_id,
+            min(FEED_PAGE_SIZE, limit - posts_scraped),
+            current_cursor,
+        )
         if response.status_code != 200:
             print(f"❌ [Deep Scrape] API Error {response.status_code} at cursor {current_cursor}")
             break
-            
-        data = response.json()
-        user_data = data.get("data", {}).get("user") or data
-        scraped_internal_id = user_data.get("id")
-        
-        timeline = user_data.get("edge_owner_to_timeline_media", {})
+
         edges = timeline.get("edges", [])
+        page_is_before_cutoff = False
+        if cutoff_timestamp:
+            edges, page_is_before_cutoff = _filter_edges_by_age(edges, cutoff_timestamp)
         
         # We might grab more edges than we need on the final page; slice it if so.
         remaining = limit - posts_scraped
         if len(edges) > remaining:
             edges = edges[:remaining]
             
-        i, u = bulk_insert_posts(conn, cursor, scraped_internal_id, edges)
+        i, u = bulk_insert_posts(conn, cursor, internal_id, edges)
         posts_scraped += len(edges)
         print(f"   -> [Deep] Scraped page. DB Inserted {i}, Updated {u}. Total Extracted: {posts_scraped}/{limit}")
         
@@ -218,12 +354,14 @@ def run_deep_scrape(username, limit, delay):
         page_info = timeline.get("page_info", {})
         has_next_page = page_info.get("has_next_page", False)
         
-        if not has_next_page or posts_scraped >= limit:
+        if page_is_before_cutoff or not has_next_page or posts_scraped >= limit:
             break
             
         current_cursor = page_info.get("end_cursor")
-        if not current_cursor:
+        if not current_cursor or current_cursor in seen_cursors:
             break
+
+        seen_cursors.add(current_cursor)
             
         print(f"   -> [Deep] Sleeping {delay} seconds before next cursor loop...")
         time.sleep(delay)

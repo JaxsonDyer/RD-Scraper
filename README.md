@@ -7,6 +7,29 @@ Instagram scraper and analytics dashboard for Red Deer area accounts.
 - **Backend**: Flask API + Instagram scraper (RapidAPI) + MySQL (Docker)
 - **Frontend**: Next.js dashboard with real-time charts and AI-powered insights
 
+## Screenshots
+
+### Overview
+
+Aggregate engagement totals, AI-generated local area intelligence, and per-account
+growth charts that expand inline.
+
+![Overview dashboard](docs/screenshots/overview.png)
+
+### Posts
+
+Every scraped post with engagement metrics, filterable by account, with captions
+and rescrape controls in the detail panel.
+
+![Scraped posts browser](docs/screenshots/posts.png)
+
+### Manager
+
+Scheduler countdown, run history, target account configuration, and the deep
+scrape toolkit.
+
+![Scraper manager](docs/screenshots/manager.png)
+
 ## Setup
 
 ### Backend
