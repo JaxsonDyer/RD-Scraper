@@ -1,8 +1,1 @@
-- Graph of follower, following counts, total posts
-- display of post images / videos
-- weekly AI summary of posts
-- AI guidance for each business
-- Professional terminal outputs and logging
-- When we rescrape a post it doesn't update the scraped figure in the dashboard. I assume this is backend / db issue.
-- The table in manager, the header should not scroll with the rows scroll
-- Caching needs an actual server and not a json file.
+
