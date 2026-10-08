@@ -51,8 +51,8 @@ export default function PostsPage() {
     setSelectedPost(null);
     try {
       const url = filterUser
-        ? `http://127.0.0.1:5000/api/posts?username=${encodeURIComponent(filterUser)}`
-        : `http://127.0.0.1:5000/api/posts`;
+        ? `/api/posts?username=${encodeURIComponent(filterUser)}`
+        : `/api/posts`;
       const res = await fetch(url);
       const data = await res.json();
       setPosts(data.posts || []);
@@ -67,7 +67,7 @@ export default function PostsPage() {
   const rescrapePost = async (shortcode: string) => {
     setRescrapeSyncing(prev => ({ ...prev, [shortcode]: "syncing" }));
     try {
-      const res = await fetch("http://127.0.0.1:5000/api/rescrape-post", {
+      const res = await fetch("/api/rescrape-post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shortcode }),
@@ -91,12 +91,6 @@ export default function PostsPage() {
     <div className="space-y-6 h-full">
       {/* Header */}
       <div className="pb-2 flex justify-between items-end">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Scraped Posts</h1>
-          <p className="text-muted-foreground mt-1">
-            {posts.length.toLocaleString()} post{posts.length !== 1 ? "s" : ""}. Select any row to read its caption.
-          </p>
-        </div>
 
         <Select
           selectedKey={filterUser}

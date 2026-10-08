@@ -111,7 +111,7 @@ function AccountCharts({ username }: { username: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`http://127.0.0.1:5000/api/account-history/${encodeURIComponent(username)}`)
+    fetch(`/api/account-history/${encodeURIComponent(username)}`)
       .then(r => r.json())
       .then(d => setHistory(d))
       .catch(() => {})
@@ -237,8 +237,8 @@ export default function OverviewPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("http://127.0.0.1:5000/api/accounts").then(r => r.json()),
-      fetch("http://127.0.0.1:5000/api/stats").then(r => r.json()),
+      fetch("/api/accounts").then(r => r.json()),
+      fetch("/api/stats").then(r => r.json()),
     ])
       .then(([accountData, statsData]) => {
         setAccounts(accountData.accounts || []);
@@ -248,7 +248,7 @@ export default function OverviewPage() {
       .finally(() => setLoading(false));
 
     const loadAiInsights = () => {
-      fetch("http://127.0.0.1:5000/api/ai-insights")
+      fetch("/api/ai-insights")
         .then(r => r.json())
         .then(d => {
           if (!d.error) {
@@ -271,18 +271,8 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-10">
-
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Local Area Overview</h1>
-        <p className="text-muted-foreground mt-1">
-          Aggregated intelligence across {accounts.length} monitored accounts in the area.
-        </p>
-      </div>
-
       {/* Aggregate stats bar */}
       <section>
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">All-Time Engagement Totals</h2>
         {loading ? (
           <div className="flex items-center gap-2 text-muted-foreground text-sm"><RefreshCw className="w-4 h-4 animate-spin" /> Loading...</div>
         ) : (

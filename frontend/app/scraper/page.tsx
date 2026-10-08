@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button, Input, TextField, Label, Checkbox } from "react-aria-components";
 import {
-  Timer, RefreshCw,
+  RefreshCw,
   AlertCircle, CheckCircle2, Clock3
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 type Config = {
   target_accounts: string[];
   daily_run_time: string;
+  scheduler_enabled?: boolean;
   post_lookback_days: number;
   incremental_post_limit: number;
   llm_config?: {
@@ -36,13 +37,14 @@ type AiStatus = {
 };
 
 export default function ScraperPage() {
-  const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   // Global Sync Form
   const [targetAccounts, setTargetAccounts] = useState<string[]>([]);
   const [newAccount, setNewAccount] = useState("");
   const [dailyTime, setDailyTime] = useState("00:00");
+  const [schedulerEnabled, setSchedulerEnabled] = useState(false);
   const [postLookbackDays, setPostLookbackDays] = useState(30);
   const [incrementalLimit, setIncrementalLimit] = useState(250);
   const [configSaving, setConfigSaving] = useState(false);
@@ -50,6 +52,7 @@ export default function ScraperPage() {
 
   // LLM Config
   const [llmModels, setLlmModels] = useState<LlmModel[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [llmLookbackDays, setLlmLookbackDays] = useState(7);
   const [llmMaxPosts, setLlmMaxPosts] = useState(10);
   const [llmModelId, setLlmModelId] = useState("google/gemini-2.5-flash");
@@ -73,18 +76,31 @@ export default function ScraperPage() {
   const [countdown, setCountdown] = useState("");
   const [scrapeRuns, setScrapeRuns] = useState<{run_date:string; started_at:string; completed_at:string; accounts_scraped:number}[]>([]);
 
-  useEffect(() => {
-    fetch("http://127.0.0.1:5000/api/llm-models")
-      .then(r => r.json())
-      .then(d => setLlmModels(d))
-      .catch(() => {});
+  const loadModels = async () => {
+    try {
+      const response = await fetch("/api/llm-models");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const models: unknown = await response.json();
+      if (!Array.isArray(models) || models.length === 0) throw new Error("No models configured");
+      setLlmModels(models);
+      setModelsError(null);
+    } catch (error) {
+      setModelsError(error instanceof Error ? error.message : "Could not load models");
+    }
+  };
 
-    fetch("http://127.0.0.1:5000/api/config")
-      .then(r => r.json())
-      .then(d => {
-        setConfig(d);
+  useEffect(() => {
+    void loadModels();
+
+    fetch("/api/config")
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d: Config) => {
         setTargetAccounts(d.target_accounts || []);
         setDailyTime(d.daily_run_time || "00:00");
+        setSchedulerEnabled(d.scheduler_enabled === true);
         setPostLookbackDays(d.post_lookback_days || 30);
         setIncrementalLimit(d.incremental_post_limit || 250);
         
@@ -94,13 +110,14 @@ export default function ScraperPage() {
           setLlmModelId(d.llm_config.model || "google/gemini-2.5-flash");
         }
         
-        setLoading(false);
-      });
+      })
+      .catch(error => setConfigError(error instanceof Error ? error.message : "Could not load configuration"))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     const pollAiStatus = () => {
-      fetch("http://127.0.0.1:5000/api/ai-status")
+      fetch("/api/ai-status")
         .then(r => r.json())
         .then(d => setAiStatus(d))
         .catch(() => {});
@@ -113,10 +130,10 @@ export default function ScraperPage() {
   // Poll scheduler status every 5s, then tick countdown every 1s
   useEffect(() => {
     const pollStatus = () => {
-      fetch("http://127.0.0.1:5000/api/scheduler-status")
+      fetch("/api/scheduler-status")
         .then(r => r.json())
         .then(d => {
-          if (d.next_run_time) setNextRunTime(new Date(d.next_run_time));
+          setNextRunTime(d.next_run_time ? new Date(d.next_run_time) : null);
           if (d.last_run_date) setLastRunDate(d.last_run_date);
           if (d.scrape_runs) setScrapeRuns(d.scrape_runs);
         })
@@ -143,12 +160,13 @@ export default function ScraperPage() {
   const saveConfig = async () => {
     setConfigSaving(true);
     try {
-      await fetch("http://127.0.0.1:5000/api/config", {
+      const response = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           target_accounts: targetAccounts.join(", "),
           daily_run_time: dailyTime,
+          scheduler_enabled: schedulerEnabled,
           post_lookback_days: postLookbackDays,
           incremental_post_limit: incrementalLimit,
           llm_config: {
@@ -158,6 +176,8 @@ export default function ScraperPage() {
           }
         })
       });
+      if (!response.ok) throw new Error("Failed to save config.");
+      if (!schedulerEnabled) setNextRunTime(null);
       alert("Configuration Saved!");
     } catch (e) {
       console.error(e);
@@ -169,15 +189,21 @@ export default function ScraperPage() {
 
   const forceScrape = async () => {
     setForceScraping(true);
-    await fetch("http://127.0.0.1:5000/api/force-scrape", { method: "POST" });
-    alert("Background scrape initiated. Insights will be generated automatically upon completion.");
-    setForceScraping(false);
+    try {
+      const response = await fetch("/api/force-scrape", { method: "POST" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      alert("Background scrape initiated. Insights will be generated automatically upon completion.");
+    } catch (error) {
+      alert(error instanceof Error ? `Could not start scrape: ${error.message}` : "Could not start scrape.");
+    } finally {
+      setForceScraping(false);
+    }
   };
 
   const generateInsights = async () => {
     setGeneratingInsights(true);
     try {
-      const response = await fetch("http://127.0.0.1:5000/api/generate-insights", { method: "POST" });
+      const response = await fetch("/api/generate-insights", { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to start intelligence generation");
       setAiStatus(current => current ? { ...current, state: "running", error: null } : current);
@@ -192,15 +218,21 @@ export default function ScraperPage() {
   const analyzeAccount = async () => {
     if (!deepUsername) return;
     setAnalyzing(true);
-    const res = await fetch("http://127.0.0.1:5000/api/analyze-account", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: deepUsername })
-    });
-    const d = await res.json();
-    if(d.success) setMaxPosts(d.count);
-    else alert("Could not extract data");
-    setAnalyzing(false);
+    try {
+      const res = await fetch("/api/analyze-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: deepUsername })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (d.success) setMaxPosts(d.count);
+      else alert("Could not extract data");
+    } catch (error) {
+      alert(error instanceof Error ? `Could not analyze account: ${error.message}` : "Could not analyze account.");
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -211,17 +243,23 @@ export default function ScraperPage() {
   const dispatchDeepScrape = async () => {
     setDeepScraping(true);
     const delayTotal = (delayH * 3600) + (delayM * 60) + delayS;
-    await fetch("http://127.0.0.1:5000/api/deep-scrape", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: deepUsername,
-        limit: deepLimit,
-        delay: delayTotal
-      })
-    });
-    alert(`Deep Scrape for @${deepUsername} dispatched to background thread.`);
-    setDeepScraping(false);
+    try {
+      const response = await fetch("/api/deep-scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: deepUsername,
+          limit: deepLimit,
+          delay: delayTotal
+        })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      alert(`Deep Scrape for @${deepUsername} dispatched to background thread.`);
+    } catch (error) {
+      alert(error instanceof Error ? `Could not start deep scrape: ${error.message}` : "Could not start deep scrape.");
+    } finally {
+      setDeepScraping(false);
+    }
   };
 
   const addAccount = () => {
@@ -242,26 +280,20 @@ export default function ScraperPage() {
     </div>
   );
 
+  if (configError) return (
+    <div className="p-6 border border-destructive/20 rounded-lg text-sm text-destructive">
+      Could not load scraper configuration: {configError}. Check that the backend is running.
+      <Button onPress={() => window.location.reload()} className="ml-3 underline cursor-pointer">Retry</Button>
+    </div>
+  );
+
   return (
     <div className="space-y-8">
-
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Scraper Manager</h1>
-        <p className="text-muted-foreground mt-1">
-          Infrastructure configuration, scheduling, and heavy extraction tools.
-        </p>
-      </div>
-
       {/* Scheduler countdown + last run */}
       <section>
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Scheduler Status</h2>
         <div className="card-surface border border-border rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-start gap-4">
-              <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
-                <Timer className="w-5 h-5 text-primary" />
-              </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Next Scheduled Scrape</p>
                 <p className="text-4xl font-mono font-bold text-primary tracking-tight">{countdown || "Pending"}</p>
@@ -384,6 +416,16 @@ export default function ScraperPage() {
             </div>
 
             {/* Schedule fields */}
+            <Checkbox
+              isSelected={schedulerEnabled}
+              onChange={setSchedulerEnabled}
+              className="group flex items-center gap-2.5 text-sm font-medium text-foreground cursor-pointer"
+            >
+              <span className="flex size-4 items-center justify-center rounded border border-border bg-background group-data-[selected]:border-primary group-data-[selected]:bg-primary group-data-[focus-visible]:ring-2 group-data-[focus-visible]:ring-ring">
+                <svg className="size-2.5 text-primary-foreground opacity-0 group-data-[selected]:opacity-100" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3 8L6 11L11 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </span>
+              Enable daily automatic scraping
+            </Checkbox>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <TextField value={dailyTime} onChange={setDailyTime} className="flex flex-col gap-1">
                 <Label className="text-xs text-muted-foreground font-medium">Daily Scrape Time</Label>
@@ -473,12 +515,20 @@ export default function ScraperPage() {
                 <select 
                   value={llmModelId} 
                   onChange={e => setLlmModelId(e.target.value)}
-                  className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none appearance-none"
+                  className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none"
                 >
+                  {!llmModels.some(model => model.id === llmModelId) && (
+                    <option value={llmModelId}>Saved model: {llmModelId}</option>
+                  )}
                   {llmModels.map(model => (
                     <option key={model.id} value={model.id}>{model.name}</option>
                   ))}
                 </select>
+                {modelsError && (
+                  <p className="text-xs text-destructive">
+                    Could not load model choices ({modelsError}). <button type="button" onClick={() => void loadModels()} className="underline cursor-pointer">Retry</button>
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <TextField value={llmLookbackDays.toString()} onChange={v => setLlmLookbackDays(parseInt(v) || 0)} className="flex flex-col gap-1.5">

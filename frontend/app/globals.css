@@ -69,13 +69,13 @@
   --font-mono: "Geist Mono", ui-monospace, monospace;
 }
 
-/* Card surface: soft top-down sheen over the card token. */
+/* Shared card surface: dark at the top, easing into a lighter sheen. */
 @utility card-surface {
   background-color: var(--card);
   background-image: linear-gradient(
     to bottom,
-    color-mix(in oklab, var(--primary) 6%, var(--card)),
-    var(--card)
+    var(--card),
+    color-mix(in oklab, var(--primary) 6%, var(--card))
   );
 }
 

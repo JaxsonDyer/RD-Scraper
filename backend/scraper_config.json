@@ -7,6 +7,7 @@
     "reddeerpolytechnic"
   ],
   "daily_run_time": "00:00",
+  "scheduler_enabled": false,
   "post_lookback_days": 30,
   "incremental_post_limit": 250,
   "llm_config": {

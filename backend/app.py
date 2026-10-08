@@ -187,15 +187,17 @@ def background_scrape_and_insights(force_date=None):
     generate_insights_logic()
 
 def setup_scheduler():
-    """Reads config, clears previous jobs, and sets the daily cron."""
+    """Install the daily scrape job only when the saved schedule is enabled."""
     with open("scraper_config.json", "r") as f:
         config = json.load(f)
-        
+
+    scheduler.remove_all_jobs()
+    if not config.get("scheduler_enabled", False):
+        return
+
     run_time = config.get("daily_run_time", "00:00")
     h, m = run_time.split(":")
-    
-    # Reset existing jobs if reloading
-    scheduler.remove_all_jobs()
+
     scheduler.add_job(
         func=background_scrape_and_insights,
         trigger="cron",
@@ -216,7 +218,12 @@ def execute_resilience_check():
         
         with open("scraper_config.json", "r") as f:
             config = json.load(f)
-            
+
+        if not config.get("scheduler_enabled", False):
+            cursor.close()
+            conn.close()
+            return
+
         targets = config.get("target_accounts", [])
         if not targets: return
         
@@ -423,6 +430,7 @@ def save_config():
     new_config = {
         "target_accounts": targets,
         "daily_run_time": data["daily_run_time"],
+        "scheduler_enabled": data.get("scheduler_enabled") is True,
         "post_lookback_days": max(1, min(int(data.get("post_lookback_days", 30)), 3650)),
         "incremental_post_limit": max(1, min(int(data.get("incremental_post_limit", 250)), 5000)),
         "llm_config": data.get("llm_config", {
