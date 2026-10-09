@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Select, Label, Button, SelectValue, Popover, ListBox, ListBoxItem } from "react-aria-components";
 import {
-  Heart, MessageCircle, Play, Image, Video,
+  Heart, MessageCircle, Play, Image as ImageIcon, Video,
   ChevronDown, RefreshCw, CheckCircle, XCircle,
 } from "lucide-react";
+import { useAuth } from "@/components/auth-provider";
+import { queueJob, waitForJob } from "@/lib/jobs";
 import { Badge } from "@/components/ui/badge";
 
 type Post = {
@@ -35,6 +37,10 @@ function StatPill({ label, value }: { label: string; value: string }) {
 }
 
 export default function PostsPage() {
+  const { isAdmin } = useAuth();
+  const [pageIndex, setPageIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,45 +48,44 @@ export default function PostsPage() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [rescrapeSyncing, setRescrapeSyncing] = useState<Record<string, "syncing" | "done" | "failed" | null>>({});
 
-  useEffect(() => {
-    fetchPosts();
-  }, [filterUser]);
-
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted) return;
     setLoading(true);
-    setSelectedPost(null);
+    setError(null);
     try {
       const url = filterUser
         ? `/api/posts?username=${encodeURIComponent(filterUser)}`
         : `/api/posts`;
-      const res = await fetch(url);
+      const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}page=${pageIndex}`, { signal });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not load posts.");
+      setHasMore(data.has_more === true);
       setPosts(data.posts || []);
+      setSelectedPost(current => current ? data.posts.find((p: Post) => p.shortcode === current.shortcode) ?? null : null);
       setUsers(data.users || []);
     } catch (e) {
-      console.error(e);
+      if (!signal?.aborted) setError(e instanceof Error ? e.message : "Could not load posts.");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  };
+  }, [filterUser, pageIndex]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.resolve().then(() => fetchPosts(controller.signal));
+    return () => controller.abort();
+  }, [fetchPosts]);
 
   const rescrapePost = async (shortcode: string) => {
     setRescrapeSyncing(prev => ({ ...prev, [shortcode]: "syncing" }));
     try {
-      const res = await fetch("/api/rescrape-post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shortcode }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setRescrapeSyncing(prev => ({ ...prev, [shortcode]: "done" }));
-        if (selectedPost?.shortcode === shortcode) await fetchPosts();
-        setTimeout(() => setRescrapeSyncing(prev => ({ ...prev, [shortcode]: null })), 4000);
-      } else {
-        setRescrapeSyncing(prev => ({ ...prev, [shortcode]: "failed" }));
-      }
-    } catch {
+      const id = await queueJob("/api/rescrape-post", { shortcode });
+      await waitForJob(id);
+      setRescrapeSyncing(prev => ({ ...prev, [shortcode]: "done" }));
+      await fetchPosts();
+      setTimeout(() => setRescrapeSyncing(prev => ({ ...prev, [shortcode]: null })), 4000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not refresh post.");
       setRescrapeSyncing(prev => ({ ...prev, [shortcode]: "failed" }));
     }
   };
@@ -89,16 +94,15 @@ export default function PostsPage() {
 
   return (
     <div className="space-y-6 h-full">
-      {/* Header */}
-      <div className="pb-2 flex justify-between items-end">
-
+      {/* Account filter and pagination */}
+      <div className="pb-2 flex flex-wrap justify-between items-end gap-4">
         <Select
           selectedKey={filterUser}
-          onSelectionChange={(k) => setFilterUser(k as string)}
+          onSelectionChange={(k) => { setPageIndex(0); setFilterUser(k as string); }}
           className="flex flex-col gap-1 w-56"
         >
           <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Account</Label>
-          <Button className="flex items-center justify-between w-full px-3 py-2 bg-background border border-input rounded-md text-sm text-foreground outline-none focus:ring-1 focus:ring-ring shadow-sm">
+          <Button className="flex min-h-11 items-center justify-between w-full px-3 py-2 bg-background border border-input rounded-md text-sm text-foreground outline-none focus:ring-1 focus:ring-ring shadow-sm">
             <SelectValue className="truncate">
               {({ defaultChildren, isPlaceholder }) => (isPlaceholder ? "All Accounts" : defaultChildren)}
             </SelectValue>
@@ -117,13 +121,19 @@ export default function PostsPage() {
             </ListBox>
           </Popover>
         </Select>
+        <div className="ml-auto flex items-center gap-3 text-sm">
+          <button type="button" disabled={pageIndex === 0 || loading} onClick={() => setPageIndex(page => page - 1)} className="min-h-11 rounded-md border border-input px-3 disabled:opacity-40">Previous</button>
+          <span className="text-muted-foreground">Page {pageIndex + 1}</span>
+          <button type="button" disabled={!hasMore || loading} onClick={() => setPageIndex(page => page + 1)} className="min-h-11 rounded-md border border-input px-3 disabled:opacity-40">Next</button>
+        </div>
       </div>
 
+      {error && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-destructive"><span>{error}</span><button type="button" onClick={() => void fetchPosts()} className="min-h-11 underline">Retry</button></div>}
       {/* Two-panel layout */}
-      <div className="flex gap-4 h-[calc(100vh-220px)] min-h-[500px]">
+      <div className="flex flex-col gap-4 lg:h-[calc(100vh-280px)] lg:min-h-[500px] lg:flex-row">
 
         {/* LEFT: Compact list */}
-        <div className="w-80 flex-shrink-0 bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
+        <div className="max-h-96 w-full flex-shrink-0 bg-card lg:max-h-none lg:w-80 border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
           {/* Column headers */}
           <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-2.5 bg-muted/50 border-b border-border">
             <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Account</span>
@@ -156,7 +166,7 @@ export default function PostsPage() {
                         <span className="text-xs font-semibold text-foreground truncate">@{post.username}</span>
                         {post.is_video
                           ? <Video className="w-3 h-3 shrink-0 text-destructive" />
-                          : <Image className="w-3 h-3 shrink-0 text-primary" />
+                          : <ImageIcon aria-hidden="true" className="w-3 h-3 shrink-0 text-primary" />
                         }
                       </div>
                       <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
@@ -174,7 +184,7 @@ export default function PostsPage() {
         </div>
 
         {/* RIGHT: Detail panel */}
-        <div className="flex-1 bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
+        <div className="min-h-96 min-w-0 flex-1 bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
           {!selectedPost ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
               <p className="text-muted-foreground text-sm">Select a post from the list to view its details</p>
@@ -186,11 +196,11 @@ export default function PostsPage() {
                 <div className="flex items-center gap-3">
                   <span className="font-semibold text-foreground">@{selectedPost.username}</span>
                   <Badge>
-                    {selectedPost.is_video ? <Video /> : <Image />}
+                    {selectedPost.is_video ? <Video aria-hidden="true" /> : <ImageIcon aria-hidden="true" />}
                     {selectedPost.is_video ? "Video" : "Photo"}
                   </Badge>
                 </div>
-                <Button
+                {isAdmin && <Button
                   isDisabled={rescrapeState === "syncing"}
                   onPress={() => rescrapePost(selectedPost.shortcode)}
                   className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-md border transition-colors outline-none focus:ring-1 focus:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
@@ -205,12 +215,12 @@ export default function PostsPage() {
                   {rescrapeState === "done" && <CheckCircle className="w-3.5 h-3.5" />}
                   {rescrapeState === "failed" && <XCircle className="w-3.5 h-3.5" />}
                   {!rescrapeState && <RefreshCw className="w-3.5 h-3.5" />}
-                  {rescrapeState === "syncing" ? "Syncing..." : rescrapeState === "done" ? "Done" : rescrapeState === "failed" ? "Failed" : "Rescrape"}
-                </Button>
+                  {rescrapeState === "syncing" ? "Queued / Syncing..." : rescrapeState === "done" ? "Done" : rescrapeState === "failed" ? "Failed" : "Rescrape"}
+                </Button>}
               </div>
 
               {/* Stats row */}
-              <div className="px-6 py-4 border-b border-border flex items-center gap-6">
+              <div className="px-6 py-4 border-b border-border flex flex-wrap items-center gap-6">
                 <StatPill label="Likes" value={(selectedPost.likes ?? 0).toLocaleString()} />
                 <div className="w-px h-10 bg-border" />
                 <StatPill label="Comments" value={(selectedPost.comments ?? 0).toLocaleString()} />

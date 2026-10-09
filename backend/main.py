@@ -1,417 +1,242 @@
+"""Instagram collection tasks for the persistent Supabase worker."""
 import os
-import json
-import requests
-import mysql.connector
-from datetime import datetime
+import logging
+import re
+import threading
 import time
+from datetime import datetime, timezone
+import requests
 from dotenv import load_dotenv
-import docker_utils
+from storage import Storage
 
-# Load Environment Variables
 load_dotenv()
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
-RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "instagram-looter2.p.rapidapi.com")
-DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME")
-MYSQL_CONTAINER_NAME = os.getenv("MYSQL_CONTAINER_NAME", "mysql-container")
-REQUEST_TIMEOUT_SECONDS = 30
+RAPIDAPI_HOST = os.getenv('RAPIDAPI_HOST', 'instagram-looter2.p.rapidapi.com')
 FEED_PAGE_SIZE = 50
+cancelled = threading.Event()
+log = logging.getLogger('rd.scraper')
 
-def _api_headers():
-    return {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
+class ScrapeError(RuntimeError):
+    pass
+
+
+def check_lease():
+    if cancelled.is_set():
+        raise ScrapeError('Worker stopped or lost its job lease.')
+
+
+def pause(seconds):
+    if cancelled.wait(seconds):
+        check_lease()
+
+
+def _api_get(endpoint, params):
+    check_lease()
+    key = os.getenv('RAPIDAPI_KEY')
+    if not key:
+        raise ScrapeError('RapidAPI key is not configured.')
+    # Retry idempotent GETs only. Bound waits and allow lease cancellation.
+    for attempt in range(3):
+        check_lease()
+        try:
+            response = requests.get(f'https://{RAPIDAPI_HOST}/{endpoint}',
+                headers={'X-RapidAPI-Key': key, 'X-RapidAPI-Host': RAPIDAPI_HOST},
+                params=params, timeout=30)
+            if response.status_code in (429, 502, 503, 504) and attempt < 2:
+                try:
+                    retry_after = float(response.headers.get('Retry-After', 2 ** attempt))
+                except ValueError:
+                    retry_after = 2 ** attempt
+                pause(max(1, min(retry_after, 60)))
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ScrapeError('Provider returned an invalid response.')
+            return payload
+        except (requests.RequestException, ValueError) as exc:
+            if attempt < 2:
+                pause(2 ** attempt)
+                continue
+            raise ScrapeError('Instagram provider request failed. Check the provider and API quota.') from exc
+    raise ScrapeError('Instagram provider request failed.')
+
 
 def _extract_user(payload):
-    if not isinstance(payload, dict):
-        return {}
-    return payload.get("data", {}).get("user") or payload
+    data = payload.get('data')
+    return (data.get('user') if isinstance(data, dict) else None) or payload
 
-def _extract_timeline(payload):
-    user_data = _extract_user(payload)
-    if not isinstance(user_data, dict):
-        return {}
-    return user_data.get("edge_owner_to_timeline_media", {})
 
 def _fetch_profile(username):
-    response = requests.get(
-        f"https://{RAPIDAPI_HOST}/profile",
-        headers=_api_headers(),
-        params={"username": username},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    payload = response.json() if response.content else {}
-    return response, payload, _extract_user(payload)
+    if not re.fullmatch(r'[A-Za-z0-9_.]{1,30}', username):
+        raise ScrapeError('Invalid Instagram username.')
+    user = _extract_user(_api_get('profile', {'username': username}))
+    if not user.get('id'):
+        raise ScrapeError('Profile not found.')
+    return user
+
 
 def _fetch_feed_page(user_id, count, end_cursor=None):
-    params = {"id": user_id, "count": count}
+    params = {'id': user_id, 'count': count}
     if end_cursor:
-        params["end_cursor"] = end_cursor
-    response = requests.get(
-        f"https://{RAPIDAPI_HOST}/user-feeds2",
-        headers=_api_headers(),
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    payload = response.json() if response.content else {}
-    return response, payload, _extract_timeline(payload)
+        params['end_cursor'] = end_cursor
+    user = _extract_user(_api_get('user-feeds2', params))
+    timeline = user.get('edge_owner_to_timeline_media')
+    if not isinstance(timeline, dict) or not isinstance(timeline.get('edges'), list):
+        raise ScrapeError('Provider feed format changed or the feed is unavailable.')
+    return timeline
+
 
 def _filter_edges_by_age(edges, cutoff_timestamp):
-    eligible = []
-    timestamps = []
+    eligible, timestamps = [], []
     for edge in edges:
-        timestamp = edge.get("node", {}).get("taken_at_timestamp")
+        timestamp = edge.get('node', {}).get('taken_at_timestamp')
         if timestamp:
             timestamps.append(timestamp)
         if not timestamp or timestamp >= cutoff_timestamp:
             eligible.append(edge)
+    return eligible, bool(timestamps) and max(timestamps) < cutoff_timestamp
 
-    # Only stop when the entire page is older than the cutoff. This avoids an
-    # older pinned post causing newer posts later in the page to be skipped.
-    page_is_before_cutoff = bool(timestamps) and max(timestamps) < cutoff_timestamp
-    return eligible, page_is_before_cutoff
 
-def get_db_connection():
-    try:
-        return mysql.connector.connect(
-            host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME
-        )
-    except mysql.connector.Error as err:
-        print(f"❌ Database connection failed in thread: {err}")
-        return None
+def process_account_data(store, data, total_posts_override=None):
+    check_lease()
+    now = datetime.now(timezone.utc)
+    account_id = str(data['id'])
+    store.upsert('accounts', {'internal_ig_id': account_id, 'username': data['username'],
+        'full_name': data.get('full_name'), 'is_business': data.get('is_business_account')}, 'internal_ig_id')
+    store.upsert('daily_stats', {'account_id': account_id, 'date_checked': now.date().isoformat(),
+        'scraped_at': now.isoformat(), 'followers': data.get('edge_followed_by', {}).get('count'),
+        'following': data.get('edge_follow', {}).get('count'),
+        'total_posts': total_posts_override if total_posts_override is not None else data.get('edge_owner_to_timeline_media', {}).get('count')},
+        'account_id,date_checked')
 
-def setup_database(cursor):
-    """Create the necessary database tables if they do not exist."""
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS accounts (
-            internal_ig_id VARCHAR(255) PRIMARY KEY,
-            username VARCHAR(255) NOT NULL,
-            full_name VARCHAR(255),
-            is_business BOOLEAN
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS daily_stats (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            account_id VARCHAR(255),
-            date_checked DATE DEFAULT (CURRENT_DATE),
-            scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            followers INT,
-            following INT,
-            total_posts INT,
-            FOREIGN KEY (account_id) REFERENCES accounts(internal_ig_id)
-        )
-    """)
-    # Add scraped_at to existing tables that predate this column
-    try:
-        cursor.execute("ALTER TABLE daily_stats ADD COLUMN scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP")
-    except Exception:
-        pass  # Column already exists
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS posts (
-            shortcode VARCHAR(255) PRIMARY KEY,
-            account_id VARCHAR(255),
-            caption TEXT,
-            likes INT,
-            comments INT,
-            is_video BOOLEAN,
-            views INT,
-            posted_timestamp DATETIME,
-            scraped_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (account_id) REFERENCES accounts(internal_ig_id)
-        )
-    """)
 
-def process_account_data(db_conn, cursor, data: dict, force_date=None, total_posts_override=None):
-    """Processes parsed JSON data from IG into the MySQL database mapping."""
-    internal_ig_id = data.get("id")
-    username = data.get("username")
-    full_name = data.get("full_name")
-    is_business = data.get("is_business_account")
-    
-    # Insert Account
-    account_sql = "INSERT IGNORE INTO accounts (internal_ig_id, username, full_name, is_business) VALUES (%s, %s, %s, %s)"
-    cursor.execute(account_sql, (internal_ig_id, username, full_name, is_business))
-    
-    # Extract stats
-    followers = data.get("edge_followed_by", {}).get("count")
-    following = data.get("edge_follow", {}).get("count")
-    total_posts = total_posts_override
-    if total_posts is None:
-        total_posts = data.get("edge_owner_to_timeline_media", {}).get("count")
-    
-    # Insert Daily Stats, supporting catchups
-    now = datetime.now()
-    if force_date:
-        stats_sql = "INSERT INTO daily_stats (account_id, followers, following, total_posts, date_checked, scraped_at) VALUES (%s, %s, %s, %s, %s, %s)"
-        cursor.execute(stats_sql, (internal_ig_id, followers, following, total_posts, force_date, now))
-    else:
-        stats_sql = "INSERT INTO daily_stats (account_id, followers, following, total_posts, scraped_at) VALUES (%s, %s, %s, %s, %s)"
-        cursor.execute(stats_sql, (internal_ig_id, followers, following, total_posts, now))
-        
-    db_conn.commit()
-    print(f"✅ Processed Stats for '{username}'.")
+def _like_count(node):
+    # A feed can report -1 even when the single-post endpoint has a real count.
+    # Check each field's value; a truthy dictionary can still contain a sentinel.
+    for field in ('edge_liked_by', 'edge_media_preview_like'):
+        value = node.get(field)
+        count = value.get('count') if isinstance(value, dict) else None
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            return count
+    return None
 
-def bulk_insert_posts(db_conn, cursor, internal_ig_id, edges):
-    """Inserts a batch of post edges"""
-    inserted = 0
-    updated = 0
-    post_sql = """
-        INSERT INTO posts (shortcode, account_id, caption, likes, comments, is_video, views, posted_timestamp)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE 
-            likes = VALUES(likes), comments = VALUES(comments), views = VALUES(views)
-    """
+
+def _fetch_post_details(shortcode):
+    payload = _api_get('post', {'url': f'https://www.instagram.com/p/{shortcode}/'})
+    if payload.get('status') is not True:
+        raise ScrapeError(f'Provider could not refresh post {shortcode}.')
+    return payload
+
+
+def _require_post_likes(payload, shortcode):
+    likes = _like_count(payload)
+    if likes is None:
+        raise ScrapeError(f'Like count is unavailable for post {shortcode}, including its single-post response. No invalid count was saved.')
+    return likes
+
+
+def bulk_insert_posts(store, account_id, edges):
+    check_lease()
+    posts = []
+    observed_at = datetime.now(timezone.utc).isoformat()
     for edge in edges:
-        node = edge.get("node", {})
-        shortcode = node.get("shortcode")
-        if not shortcode:
+        node = edge.get('node', {})
+        shortcode = node.get('shortcode')
+        if not shortcode or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', shortcode):
             continue
-        caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-        caption = caption_edges[0].get("node", {}).get("text", "") if caption_edges else ""
-        likes_node = node.get("edge_liked_by") or node.get("edge_media_preview_like") or {}
-        likes = likes_node.get("count", 0)
-        comments = node.get("edge_media_to_comment", {}).get("count", 0)
-        is_video = node.get("is_video", False)
-        views = node.get("video_view_count", 0) if is_video else 0
-        ts = node.get("taken_at_timestamp")
-        dt_string = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S') if ts else None
-        
-        cursor.execute(post_sql, (shortcode, internal_ig_id, caption, likes, comments, is_video, views, dt_string))
-        if cursor.rowcount == 1:
-            inserted += 1
-        elif cursor.rowcount == 2:
-            updated += 1
-    db_conn.commit()
-    return inserted, updated
+        captions = node.get('edge_media_to_caption', {}).get('edges', [])
+        timestamp = node.get('taken_at_timestamp')
+        likes = _like_count(node)
+        if likes is None:
+            log.info('Feed like count unavailable for %s; fetching single-post details', shortcode)
+            likes = _require_post_likes(_fetch_post_details(shortcode), shortcode)
+        comments = node.get('edge_media_to_comment') or node.get('edge_media_to_parent_comment') or node.get('edge_media_preview_comment') or {}
+        posts.append({'shortcode': shortcode, 'account_id': str(account_id),
+            'caption': captions[0].get('node', {}).get('text', '') if captions else node.get('caption', ''),
+            'likes': likes, 'comments': comments.get('count', 0) or 0,
+            'views': node.get('video_view_count', 0) or 0, 'is_video': bool(node.get('is_video', False)),
+            'posted_timestamp': datetime.fromtimestamp(timestamp, timezone.utc).isoformat() if timestamp else None,
+            'scraped_timestamp': observed_at})
+    if posts:
+        store.rpc('store_posts', p_posts=posts)
+    return len(posts)
 
-def _load_config():
-    with open("scraper_config.json", "r") as f:
-        return json.load(f)
 
-def run_daily_scrape(force_date=None):
-    """Scrape each target's feed back to the configured age or safety limit."""
-    if not docker_utils.validate_docker_env(MYSQL_CONTAINER_NAME):
-        return []
-        
-    config = _load_config()
-    usernames = config.get("target_accounts", [])
-    lookback_days = max(1, int(config.get("post_lookback_days", 30)))
-    post_limit = max(1, int(config.get("incremental_post_limit", 250)))
-    cutoff_timestamp = int(time.time()) - (lookback_days * 86400)
-    
-    conn = get_db_connection()
-    if not conn:
-        return []
-    cursor = conn.cursor()
-    setup_database(cursor)
+def collect_account(store, username, limit, delay, days_back=None):
+    user = _fetch_profile(username)
+    account_id = str(user['id'])
+    cutoff = int(time.time()) - days_back * 86400 if days_back else None
+    cursor, seen, collected, processed = None, set(), 0, False
+    while collected < limit:
+        check_lease()
+        timeline = _fetch_feed_page(account_id, min(FEED_PAGE_SIZE, limit - collected), cursor)
+        if not processed:
+            process_account_data(store, user, timeline.get('count'))
+            processed = True
+        edges = timeline['edges']
+        before_cutoff = False
+        if cutoff:
+            edges, before_cutoff = _filter_edges_by_age(edges, cutoff)
+        edges = edges[:limit - collected]
+        collected += bulk_insert_posts(store, account_id, edges)
+        page = timeline.get('page_info', {})
+        next_cursor = page.get('end_cursor')
+        if before_cutoff or not edges or not page.get('has_next_page') or not next_cursor or next_cursor in seen:
+            break
+        seen.add(next_cursor)
+        cursor = next_cursor
+        pause(delay)
+    if not processed:
+        process_account_data(store, user)
+    return {'username': username, 'posts_collected': collected, 'status': 'success'}
 
+
+def run_daily_scrape(store=None):
+    store = store or Storage()
+    config = store.config()
     results = []
-    print(
-        f"\n[Thread] Scraping {len(usernames)} users up to {lookback_days} days back "
-        f"(maximum {post_limit} posts per account)..."
-    )
-    for user in usernames:
-        result = {"username": user, "inserted": 0, "updated": 0, "status": "error"}
+    for username in config['target_accounts']:
+        check_lease()
         try:
-            profile_response, profile_payload, user_data = _fetch_profile(user)
-            if profile_response.status_code != 200:
-                result["message"] = f"Profile API returned HTTP {profile_response.status_code}"
-                print(f"❌ @{user}: {result['message']}")
-                results.append(result)
-                continue
-
-            internal_id = user_data.get("id") if isinstance(user_data, dict) else None
-            if not internal_id:
-                message = profile_payload.get("errorMessage") or profile_payload.get("message") or "Profile has no user ID"
-                result["message"] = message
-                print(f"❌ @{user}: {message}")
-                results.append(result)
-                continue
-
-            end_cursor = None
-            seen_cursors = set()
-            collected = 0
-            account_processed = False
-
-            while collected < post_limit:
-                page_size = min(FEED_PAGE_SIZE, post_limit - collected)
-                feed_response, feed_payload, timeline = _fetch_feed_page(internal_id, page_size, end_cursor)
-                if feed_response.status_code != 200:
-                    result["message"] = f"Feed API returned HTTP {feed_response.status_code}"
-                    print(f"❌ @{user}: {result['message']}")
-                    break
-
-                if not account_processed:
-                    process_account_data(
-                        conn,
-                        cursor,
-                        user_data,
-                        force_date,
-                        total_posts_override=timeline.get("count"),
-                    )
-                    account_processed = True
-
-                edges = timeline.get("edges", [])
-                eligible_edges, page_is_before_cutoff = _filter_edges_by_age(edges, cutoff_timestamp)
-                eligible_edges = eligible_edges[:post_limit - collected]
-                inserted, updated = bulk_insert_posts(conn, cursor, internal_id, eligible_edges)
-                result["inserted"] += inserted
-                result["updated"] += updated
-                collected += len(eligible_edges)
-
-                page_info = timeline.get("page_info", {})
-                next_cursor = page_info.get("end_cursor")
-                if (
-                    page_is_before_cutoff
-                    or not edges
-                    or not page_info.get("has_next_page")
-                    or not next_cursor
-                    or next_cursor in seen_cursors
-                ):
-                    break
-
-                seen_cursors.add(next_cursor)
-                end_cursor = next_cursor
-                time.sleep(1)
-
-            if not account_processed:
-                process_account_data(conn, cursor, user_data, force_date)
-
-            if "message" not in result:
-                result["status"] = "ok"
-                result["message"] = f"Collected {collected} posts from the last {lookback_days} days"
-            print(
-                f"   -> @{user}: {result['message']} "
-                f"({result['inserted']} inserted, {result['updated']} updated)."
-            )
+            log.info('Collecting @%s (last %s days, limit %s)', username,
+                     config['post_lookback_days'], config['incremental_post_limit'])
+            result = collect_account(store, username, config['incremental_post_limit'], 1, config['post_lookback_days'])
             results.append(result)
-        except (requests.RequestException, ValueError) as error:
-            result["message"] = str(error)
-            print(f"❌ @{user}: {error}")
-            results.append(result)
+            log.info('Collected %s posts for @%s', result['posts_collected'], username)
+        except ScrapeError as exc:
+            check_lease()
+            log.error('Collection failed for @%s: %s', username, exc)
+            results.append({'username': username, 'status': 'error', 'error': str(exc)})
+    return {'accounts_scraped': sum(r['status'] == 'success' for r in results), 'accounts': results}
 
-    cursor.close()
-    conn.close()
-    return results
+
+def run_deep_scrape(username, limit, delay, days_back=None, store=None):
+    if not 1 <= limit <= 5000 or not 1 <= delay <= 3600 or (days_back is not None and not 1 <= days_back <= 3650):
+        raise ScrapeError('Invalid scrape limits.')
+    return collect_account(store or Storage(), username, limit, delay, days_back)
+
 
 def fetch_account_count(username):
-    """Fetches total posts purely for UI projection."""
-    response, _, user_data = _fetch_profile(username)
-    if response.status_code == 200 and user_data.get("id"):
-        feed_response, _, timeline = _fetch_feed_page(user_data["id"], 1)
-        if feed_response.status_code == 200:
-            return timeline.get("count", 0)
-    return 0
+    user = _fetch_profile(username)
+    return {'count': _fetch_feed_page(user['id'], 1).get('count', 0)}
 
-def run_deep_scrape(username, limit, delay, days_back=None):
-    """Background task to paginate heavily and deep scrape backwards."""
-    print(f"[Deep Scrape] Initializing for @{username} (Target Limit: {limit})")
-    conn = get_db_connection()
-    if not conn: return
-    cursor = conn.cursor()
-    setup_database(cursor)
-    
-    profile_response, profile_payload, user_data = _fetch_profile(username)
-    internal_id = user_data.get("id") if profile_response.status_code == 200 else None
-    if not internal_id:
-        message = profile_payload.get("errorMessage") or profile_payload.get("message") or "Profile not found"
-        print(f"❌ [Deep Scrape] @{username}: {message}")
-        cursor.close()
-        conn.close()
-        return
 
-    cutoff_timestamp = int(time.time()) - (max(1, days_back) * 86400) if days_back else None
-    current_cursor = None
-    seen_cursors = set()
-    posts_scraped = 0
-    
-    while posts_scraped < limit:
-        response, _, timeline = _fetch_feed_page(
-            internal_id,
-            min(FEED_PAGE_SIZE, limit - posts_scraped),
-            current_cursor,
-        )
-        if response.status_code != 200:
-            print(f"❌ [Deep Scrape] API Error {response.status_code} at cursor {current_cursor}")
-            break
+def rescrape_single_post(shortcode, store=None):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', shortcode):
+        raise ScrapeError('Invalid post ID.')
+    store = store or Storage()
+    rows = store.select('posts', shortcode=f'eq.{shortcode}', select='*')
+    if not rows:
+        raise ScrapeError('Post not found in the database.')
+    payload = _fetch_post_details(shortcode)
+    post = rows[0]
+    comments = payload.get('edge_media_to_parent_comment') or payload.get('edge_media_preview_comment') or {}
+    post.update(likes=_require_post_likes(payload, shortcode),
+                comments=comments.get('count', 0), views=payload.get('video_view_count', 0) or 0,
+                scraped_timestamp=datetime.now(timezone.utc).isoformat())
+    check_lease()
+    store.rpc('store_post', p_post=post)
+    return {'shortcode': shortcode}
 
-        edges = timeline.get("edges", [])
-        page_is_before_cutoff = False
-        if cutoff_timestamp:
-            edges, page_is_before_cutoff = _filter_edges_by_age(edges, cutoff_timestamp)
-        
-        # We might grab more edges than we need on the final page; slice it if so.
-        remaining = limit - posts_scraped
-        if len(edges) > remaining:
-            edges = edges[:remaining]
-            
-        i, u = bulk_insert_posts(conn, cursor, internal_id, edges)
-        posts_scraped += len(edges)
-        print(f"   -> [Deep] Scraped page. DB Inserted {i}, Updated {u}. Total Extracted: {posts_scraped}/{limit}")
-        
-        # Check cursor
-        page_info = timeline.get("page_info", {})
-        has_next_page = page_info.get("has_next_page", False)
-        
-        if page_is_before_cutoff or not has_next_page or posts_scraped >= limit:
-            break
-            
-        current_cursor = page_info.get("end_cursor")
-        if not current_cursor or current_cursor in seen_cursors:
-            break
-
-        seen_cursors.add(current_cursor)
-            
-        print(f"   -> [Deep] Sleeping {delay} seconds before next cursor loop...")
-        time.sleep(delay)
-        
-    cursor.close()
-    conn.close()
-    print(f"🎉 [Deep Scrape] Completed @{username}. Total extracted elements: {posts_scraped}")
-
-def rescrape_single_post(shortcode):
-    """Hits rapidapi specifically for a singular post to live-sync it gracefully."""
-    conn = get_db_connection()
-    if not conn: return False
-    cursor = conn.cursor()
-    
-    url = f"https://{RAPIDAPI_HOST}/post"
-    headers = {"X-RapidAPI-Key": RAPIDAPI_KEY, "X-RapidAPI-Host": RAPIDAPI_HOST}
-    post_url = f"https://www.instagram.com/p/{shortcode}/"
-    
-    print(f"[Rescrape] Refreshing {post_url} ...")
-    response = requests.get(url, headers=headers, params={"url": post_url})
-    
-    if response.status_code == 200:
-        data = response.json()
-        if data.get("status") == True:
-            # Reconstruct mapping safely
-            likes = data.get("edge_media_preview_like", {}).get("count", 0)
-            
-            # Use 'edge_media_preview_comment' as standard for basic post preview counts
-            # or 'edge_media_to_parent_comment' / 'edge_media_to_comment' 
-            comments_node = data.get("edge_media_to_parent_comment") or data.get("edge_media_preview_comment") or {}
-            comments = comments_node.get("count", 0)
-            
-            views = data.get("video_view_count", 0)
-            
-            update_sql = """
-                UPDATE posts 
-                SET likes = %s, comments = %s, views = %s
-                WHERE shortcode = %s
-            """
-            cursor.execute(update_sql, (likes, comments, views, shortcode))
-            conn.commit()
-            
-            cursor.close()
-            conn.close()
-            return True
-            
-    cursor.close()
-    conn.close()
-    return False
-
-if __name__ == "__main__":
-    # Natively acts as scraper if run standalone
-    run_daily_scrape()
+if __name__ == '__main__':
+    raise SystemExit('Start worker.py to run queued jobs, or use its --once flag for a single polling cycle.')

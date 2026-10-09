@@ -1,0 +1,6 @@
+[
+  { "id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash (Fast)" },
+  { "id": "meta-llama/llama-3-8b-instruct:free", "name": "Llama 3 8B (Free)" },
+  { "id": "nvidia/nemotron-3-ultra-550b-a55b:free", "name": "NVIDIA Nemotron 3 Ultra 550B A55B (Free)" },
+  { "id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku" }
+]

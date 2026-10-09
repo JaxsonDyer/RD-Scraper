@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { DM_Sans, Geist_Mono } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
+import { AuthProvider } from "@/components/auth-provider";
+import { getAuth } from "@/lib/auth";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -13,23 +15,26 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Scraper Analytics",
   description: "Dashboard for RedDeer Social Metrics",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const auth = await getAuth();
   return (
     <html
       lang="en"
       className={`dark ${dmSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="h-full overflow-hidden text-foreground bg-sidebar">
-        <AppShell>{children}</AppShell>
+        <AuthProvider value={auth}><AppShell>{children}</AppShell></AuthProvider>
       </body>
     </html>
   );

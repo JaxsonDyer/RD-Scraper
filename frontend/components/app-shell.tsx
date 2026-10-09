@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { SidebarNav } from "@/components/sidebar-nav";
+import { SidebarAccount } from "@/components/sidebar-account";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -25,6 +26,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             RedDeer Scraper
           </h2>
           <SidebarNav />
+          <div className="mx-3 py-4">
+            <SidebarAccount />
+          </div>
         </div>
       </aside>
 

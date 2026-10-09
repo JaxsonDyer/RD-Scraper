@@ -1,38 +1,17 @@
 #!/bin/bash
-
-set -u
-
+set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$PROJECT_DIR"
-
-echo "Checking MySQL..."
-cd backend
-if ! uv run python docker_utils.py; then
-    echo "MySQL could not be started. Make sure Docker Desktop is running."
-    exit 1
-fi
-cd ..
-
-echo "Starting Backend API (Port 5000)..."
-cd backend
-uv run flask run &
-BACKEND_PID=$!
-cd ..
-
-echo "Starting Next.js Frontend (Port 3000)..."
-cd frontend
-npm run dev &
+WORKER_PID=""
+FRONTEND_PID=""
+cleanup() {
+  if [ -n "$WORKER_PID" ]; then kill "$WORKER_PID" 2>/dev/null || true; fi
+  if [ -n "$FRONTEND_PID" ]; then kill "$FRONTEND_PID" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM
+# Local development only. Production uses Vercel plus a separate worker.
+(cd "$PROJECT_DIR/backend" && uv run python worker.py --log-file "$PROJECT_DIR/backend/logs/worker.log") &
+WORKER_PID=$!
+(cd "$PROJECT_DIR/frontend" && npm run dev) &
 FRONTEND_PID=$!
-cd ..
-
-# Handle shutdown gracefully
-trap "echo -e '\nShutting down servers...'; kill $BACKEND_PID $FRONTEND_PID; exit" SIGINT SIGTERM
-
-echo "====================================="
-echo "Both servers are currently running!"
-echo "➡️  Frontend: http://localhost:3000"
-echo "➡️  Backend:  http://127.0.0.1:5000"
-echo "Press Ctrl+C to stop both."
-echo "====================================="
-
 wait

@@ -4,9 +4,11 @@ backend/.venv/
 backend/venv/
 __pycache__/
 *.pyc
+backend/logs/
 
 # Next.js
 frontend/.next/
+frontend/.next-*/
 frontend/out/
 frontend/.turbo/
 

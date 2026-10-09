@@ -231,20 +231,21 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   
+  const [dataError, setDataError] = useState<string | null>(null);
   const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
   const [aiLastRefreshed, setAiLastRefreshed] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/accounts").then(r => r.json()),
-      fetch("/api/stats").then(r => r.json()),
+      fetch("/api/accounts").then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || "Could not load accounts."); return data; }),
+      fetch("/api/stats").then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || "Could not load statistics."); return data; }),
     ])
       .then(([accountData, statsData]) => {
         setAccounts(accountData.accounts || []);
         setTotals(statsData.totals || null);
       })
-      .catch(err => console.error("Failed to fetch overview data", err))
+      .catch(err => setDataError(err instanceof Error ? err.message : "Could not load analytics."))
       .finally(() => setLoading(false));
 
     const loadAiInsights = () => {
@@ -271,6 +272,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-10">
+      {dataError && <p role="alert" className="text-sm text-destructive">{dataError} <button type="button" onClick={() => window.location.reload()} className="min-h-11 underline">Retry</button></p>}
       {/* Aggregate stats bar */}
       <section>
         {loading ? (
@@ -293,9 +295,6 @@ export default function OverviewPage() {
             <span className="text-[10px] text-muted-foreground">
               Last refreshed: {aiLastRefreshed ? new Date(aiLastRefreshed).toLocaleString() : "Never"}
             </span>
-            <Badge variant={aiLoading ? "muted" : aiInsights ? "outline" : "destructive"}>
-              {aiLoading ? "Loading Intelligence..." : aiInsights ? "Cached Intelligence" : "Unavailable"}
-            </Badge>
           </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

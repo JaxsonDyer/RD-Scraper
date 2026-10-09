@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, FileText, Settings } from "lucide-react";
+import { useAuth } from "@/components/auth-provider";
 
 const navItems = [
   { href: "/",        label: "Overview", Icon: LayoutDashboard },
@@ -12,11 +13,12 @@ const navItems = [
 
 export function SidebarNav() {
   const pathname = usePathname();
+  const { isAdmin } = useAuth();
 
   return (
     <nav className="flex flex-1 flex-col gap-2 px-3 py-4">
-      {navItems.map(({ href, label, Icon }) => {
-        const isActive = pathname === href;
+      {navItems.filter(item => item.href !== "/scraper" || isAdmin).map(({ href, label, Icon }) => {
+        const isActive = pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
         return (
           <Link
             key={href}

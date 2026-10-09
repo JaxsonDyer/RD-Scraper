@@ -1,73 +1,52 @@
 # RD Scraper
 
-Instagram scraper and analytics dashboard for Red Deer area accounts.
+Instagram collection and analytics dashboard for Red Deer area accounts.
 
-## Architecture
+- **Dashboard and API:** Next.js, deployed to Vercel.
+- **Login:** optional Google OAuth through Supabase Auth.
+- **Database:** Supabase PostgreSQL with public analytics reads and admin-only controls.
+- **Collection:** persistent Python worker, with a durable Supabase job queue.
 
-- **Backend**: Flask API + Instagram scraper (RapidAPI) + MySQL (Docker)
-- **Frontend**: Next.js dashboard with real-time charts and AI-powered insights
+Manager and the Posts rescrape action require an admin account. The browser never receives
+the Supabase service-role key. Long scraping tasks run outside Vercel.
+
+See [deployment instructions](docs/deployment.md) to create a fresh Supabase database,
+configure Google, grant admin access, and deploy to Vercel. Existing MySQL data is not imported.
+
+## Local development
+
+Configure `frontend/.env.local` and `backend/.env` from their `.env.example` files, then:
+
+```sh
+cd frontend
+npm ci
+cd ../backend
+uv sync
+cd ..
+./start.sh
+```
+
+The dashboard runs at `http://localhost:3000`. Google callback URLs must be allowed in
+Supabase. Production uses Vercel plus a separate persistent worker; development retains
+hot reload and separate environment settings.
 
 ## Screenshots
 
-### Overview
-
-Aggregate engagement totals, AI-generated local area intelligence, and per-account
-growth charts that expand inline.
-
 ![Overview dashboard](docs/screenshots/overview.png)
-
-### Posts
-
-Every scraped post with engagement metrics, filterable by account, with captions
-and rescrape controls in the detail panel.
-
 ![Scraped posts browser](docs/screenshots/posts.png)
-
-### Manager
-
-Scheduler countdown, run history, target account configuration, and the deep
-scrape toolkit.
-
 ![Scraper manager](docs/screenshots/manager.png)
 
-## Setup
+## Checks
 
-### Backend
-
-1. Install Python dependencies:
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-2. Configure environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-```
-
-3. Ensure Docker is running (MySQL container auto-created)
-
-4. Start the API server:
-```bash
-python app.py
-```
-
-### Frontend
-
-```bash
+```sh
 cd frontend
-npm install
-npm run dev
+npm test
+npm run lint
+npx tsc --noEmit
+RD_NEXT_DIST_DIR=.next-check npm run build
+cd ../backend
+uv run python -m unittest discover -s tests
 ```
 
-Dashboard available at `http://localhost:3000`
-
-## Features
-
-- Daily automated Instagram scraping with APScheduler
-- Deep historical scraping with configurable pagination
-- AI-powered local area intelligence via OpenRouter
-- Resilience catchup for missed scrape days
-- Real-time post rescraping
-- Time-series account analytics
+Runtime configuration lives in Supabase. The legacy JSON scraper settings are not loaded.
+Analytics start empty and populate when an admin runs the first scrape from Manager.

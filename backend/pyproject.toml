@@ -1,19 +1,10 @@
 [project]
-name = "reddeer-scrape"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+name = "reddeer-scraper-worker"
+version = "0.2.0"
+description = "Persistent Instagram collection worker backed by Supabase"
 requires-python = ">=3.12"
 dependencies = [
-    "apify-client>=2.5.0",
-    "apscheduler>=3.11.2",
-    "docker>=7.1.0",
-    "flask>=3.1.3",
-    "flask-cors>=6.0.2",
-    "mysql-connector-python>=9.6.0",
-    "openai>=2.32.0",
-    "pandas>=3.0.2",
-    "python-dotenv>=1.2.2",
-    "pyyaml>=6.0.3",
-    "requests>=2.33.1",
+  "python-dotenv>=1.2.2,<2",
+  "openai>=2.32.0,<3",
+  "requests>=2.33.1,<3",
 ]
