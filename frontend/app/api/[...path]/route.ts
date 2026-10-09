@@ -5,6 +5,7 @@ import { sameOrigin } from '@/lib/security';
 import { InputError, configInput, jobInput } from '@/lib/validation';
 import models from '@/lib/llm-models.json';
 import { clientKey, createRateLimiter } from '@/lib/rate-limit';
+import { pollAfterMs } from '@/lib/poll-estimate';
 
 export const dynamic = 'force-dynamic';
 // A dashboard tab polls about 6 reads a minute; leave room for paging and for
@@ -13,6 +14,13 @@ const allowPublicRead = createRateLimiter(300);
 const json = (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { 'Cache-Control': 'private, no-store' } });
 class DatabaseError extends Error { constructor(public code: string) { super('Database request failed'); } }
 function check(error: { code?: string } | null) { if (error) throw new DatabaseError(error.code ?? ''); }
+// Tells the Manager page how long to wait before its next status check.
+async function pollAfter(client: Awaited<ReturnType<typeof createClient>>, nextRunAt: number | null = null) {
+  const { data, error } = await client.from('jobs').select('kind,status,payload,created_at,started_at,completed_at')
+    .order('created_at', { ascending: false }).limit(50);
+  check(error);
+  return pollAfterMs(data ?? [], Date.now(), nextRunAt);
+}
 
 async function handle(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
@@ -62,20 +70,23 @@ async function handle(request: Request, { params }: { params: Promise<{ path: st
         const { data, error } = await client.from('app_config').select('data').eq('id', 1).single(); check(error); if (!data) throw new DatabaseError('PGRST116'); return json(data.data);
       }
       if (route === 'scheduler-status') {
-        const { data, error } = await client.rpc('scheduler_status'); check(error); return json(data);
+        const { data, error } = await client.rpc('scheduler_status'); check(error);
+        const nextRunAt = data.next_run_time ? Date.parse(data.next_run_time) : null;
+        return json({ ...data, poll_after_ms: await pollAfter(client, nextRunAt) });
       }
       if (route === 'ai-status') {
-        const [config, job, cache] = await Promise.all([
+        const [config, job, cache, nextPoll] = await Promise.all([
           client.from('app_config').select('data').eq('id', 1).single(),
           client.from('jobs').select('*').eq('kind', 'insights').order('created_at', { ascending: false }).limit(1).maybeSingle(),
           client.from('ai_cache').select('updated_at').eq('id', 1).maybeSingle(),
+          pollAfter(client),
         ]);
         check(config.error); check(job.error); check(cache.error);
         if (!config.data) throw new DatabaseError('PGRST116');
         return json({ state: job.data?.status === 'queued' ? 'queued' : job.data?.status ?? 'idle',
           configured_model: config.data.data.llm_config.model, active_model: job.data?.result?.model ?? null,
           started_at: job.data?.started_at ?? null, completed_at: job.data?.completed_at ?? null,
-          error: job.data?.error ?? null, last_refreshed: cache.data?.updated_at ?? null });
+          error: job.data?.error ?? null, last_refreshed: cache.data?.updated_at ?? null, poll_after_ms: nextPoll });
       }
       if (path[0] === 'jobs' && path.length === 2) {
         if (!/^[0-9a-f-]{36}$/i.test(path[1])) throw new InputError('Invalid job ID.');

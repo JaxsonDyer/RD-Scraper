@@ -14,6 +14,30 @@ function load(file) {
 const { safeNext, sameOrigin, requestOrigin } = load('security.ts');
 const { configInput, jobInput } = load('validation.ts');
 const { createRateLimiter, clientKey } = load('rate-limit.ts');
+const { pollAfterMs, clampPoll } = load('poll-estimate.ts');
+test('Status polling waits for the estimated next change, between 2 seconds and 2 minutes', () => {
+  const now = Date.parse('2026-10-08T12:00:00Z');
+  const at = seconds => new Date(now + seconds * 1000).toISOString();
+  const done = (kind, start, seconds) => ({ kind, status: 'success', created_at: at(start), started_at: at(start), completed_at: at(start + seconds) });
+  // Idle: wait the maximum.
+  assert.equal(pollAfterMs([done('daily_scrape', -900, 100)], now), 120_000);
+  // Queued: the worker claims within about 10 seconds.
+  assert.equal(pollAfterMs([{ kind: 'insights', status: 'queued', created_at: at(0), started_at: null, completed_at: null }], now), 5_000);
+  // Running: past runs took 100s and this one started 40s ago, so wait about 60s more.
+  const running = { kind: 'daily_scrape', status: 'running', created_at: at(-40), started_at: at(-40), completed_at: null };
+  assert.equal(pollAfterMs([running, done('daily_scrape', -900, 100), done('daily_scrape', -9000, 100)], now), 62_000);
+  // Overdue: check often.
+  assert.equal(pollAfterMs([{ ...running, started_at: at(-130) }, done('daily_scrape', -900, 100)], now), 5_000);
+  // Deep scrape: 3 pages with a 30s delay is about 92s, so the 2-minute cap is not hit.
+  const deep = { kind: 'deep_scrape', status: 'running', payload: { limit: 120, delay: 30 }, created_at: at(0), started_at: at(0), completed_at: null };
+  assert.equal(pollAfterMs([deep], now), 94_000);
+  // Long deep scrapes are capped at 2 minutes.
+  assert.equal(pollAfterMs([{ ...deep, payload: { limit: 5000, delay: 60 } }], now), 120_000);
+  // A scheduled run 30s away: check shortly after the worker should queue it.
+  assert.equal(pollAfterMs([], now, now + 30_000), 45_000);
+  assert.equal(clampPoll(1), 2_000);
+  assert.equal(clampPoll('soon'), 120_000);
+});
 test('Public reads are limited per client and reset after a minute', () => {
   let time = 0;
   const allow = createRateLimiter(2, () => time);

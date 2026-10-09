@@ -8,6 +8,7 @@ import {
   AlertCircle, ArrowRight, CheckCircle2, Clock3
 } from "lucide-react";
 import { queueJob, waitForJob } from "@/lib/jobs";
+import { useServerPacedPoll } from "@/lib/use-server-poll";
 import { Badge } from "@/components/ui/badge";
 import { getRunErrorSummary } from "@/lib/run-history";
 
@@ -121,36 +122,35 @@ export default function ScraperPage() {
     return () => clearTimeout(modelsTimer);
   }, []);
 
-  useEffect(() => {
-    const pollAiStatus = () => {
-      fetch("/api/ai-status")
-        .then(r => r.json())
-        .then(d => setAiStatus(d))
-        .catch(() => {});
-    };
-    pollAiStatus();
-    const interval = setInterval(pollAiStatus, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  // Each status check returns poll_after_ms: the server's estimate of when
+  // something will next change. Wait that long instead of polling on a timer.
+  const refreshAiStatus = useServerPacedPoll(async () => {
+    const response = await fetch("/api/ai-status");
+    const d = await response.json();
+    if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
+    setAiStatus(d);
+    return d.poll_after_ms;
+  });
 
-  // Poll scheduler status every 5s, then tick countdown every 1s
-  useEffect(() => {
-    const pollStatus = () => {
-      fetch("/api/scheduler-status")
-        .then(r => r.json())
-        .then(d => {
-          setNextRunTime(d.next_run_time ? new Date(d.next_run_time) : null);
-          setLastRunDate(d.last_run_date || null);
-          setWorkerOnline(d.worker_online === true);
-          if (d.timezone) setScheduleTimezone(d.timezone);
-          if (d.scrape_runs) setScrapeRuns(d.scrape_runs);
-        })
-        .catch(() => {});
-    };
-    pollStatus();
-    const pollInterval = setInterval(pollStatus, 5000);
-    return () => clearInterval(pollInterval);
-  }, []);
+  const refreshSchedulerStatus = useServerPacedPoll(async () => {
+    const response = await fetch("/api/scheduler-status");
+    const d = await response.json();
+    if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
+    setNextRunTime(d.next_run_time ? new Date(d.next_run_time) : null);
+    setLastRunDate(d.last_run_date || null);
+    setWorkerOnline(d.worker_online === true);
+    if (d.timezone) setScheduleTimezone(d.timezone);
+    if (d.scrape_runs) setScrapeRuns(d.scrape_runs);
+    return d.poll_after_ms;
+  });
+
+  // Starting a job changes the estimate, so check both right away.
+  const refreshStatus = () => {
+    refreshAiStatus();
+    refreshSchedulerStatus();
+  };
+
+  // Tick countdown every 1s (local only, no requests)
 
   useEffect(() => {
     const tick = setInterval(() => {
@@ -186,6 +186,7 @@ export default function ScraperPage() {
       });
       if (!response.ok) throw new Error("Failed to save config.");
       if (!schedulerEnabled) setNextRunTime(null);
+      refreshStatus();
       alert("Configuration Saved!");
     } catch (e) {
       console.error(e);
@@ -200,6 +201,7 @@ export default function ScraperPage() {
     try {
       const response = await fetch("/api/force-scrape", { method: "POST" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      refreshStatus();
       alert("Scrape queued. Follow progress in Run History. Insights will be generated after a successful scrape.");
     } catch (error) {
       alert(error instanceof Error ? `Could not start scrape: ${error.message}` : "Could not start scrape.");
@@ -215,6 +217,7 @@ export default function ScraperPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to start intelligence generation");
       setAiStatus(current => current ? { ...current, state: "queued", error: null } : current);
+      refreshStatus();
     } catch (e) {
       console.error(e);
       alert(e instanceof Error ? e.message : "Failed to start intelligence generation.");
@@ -256,6 +259,7 @@ export default function ScraperPage() {
         })
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      refreshStatus();
       alert(`Deep Scrape for @${deepUsername} queued. Follow progress in Run History.`);
     } catch (error) {
       alert(error instanceof Error ? `Could not start deep scrape: ${error.message}` : "Could not start deep scrape.");

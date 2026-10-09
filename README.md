@@ -30,6 +30,24 @@ The dashboard runs at `http://localhost:3000`. Google callback URLs must be allo
 Supabase. Production uses Vercel plus a separate persistent worker; development retains
 hot reload and separate environment settings.
 
+## Manager status polling
+
+Manager does not poll on a fixed timer. The `ai-status` and `scheduler-status`
+endpoints return `poll_after_ms`, and the page waits that long, between 2 seconds
+and 2 minutes, before checking again.
+
+**The estimate comes from the Next.js API, not the worker.** The worker does not
+report progress. The API only knows when the running job started. It guesses the
+job's length from the median of recent runs of that kind. For a deep scrape it
+uses a fixed per-request time plus the configured delay. See
+[`frontend/lib/poll-estimate.ts`](frontend/lib/poll-estimate.ts).
+
+This guess can be completely wrong, for example when the provider's speed
+changes, the account list grows, or the worker changes. A wrong guess only
+delays or speeds up the next check. Statuses are always read from the database.
+If accurate timing matters, have the worker write an ETA to the job row and use
+it instead.
+
 ## Screenshots
 
 ![Overview dashboard](docs/screenshots/overview.png)
