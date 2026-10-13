@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Select, Label, Button, SelectValue, Popover, ListBox, ListBoxItem } from "react-aria-components";
 import {
   Heart, MessageCircle, Play, Image as ImageIcon, Video,
-  ChevronDown, RefreshCw, CheckCircle, XCircle,
+  ArrowLeft, ChevronDown, RefreshCw, CheckCircle, XCircle,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { queueJob, waitForJob } from "@/lib/jobs";
@@ -47,6 +47,7 @@ export default function PostsPage() {
   const [filterUser, setFilterUser] = useState<string>("");
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [rescrapeSyncing, setRescrapeSyncing] = useState<Record<string, "syncing" | "done" | "failed" | null>>({});
+  const detailPanel = useRef<HTMLDivElement>(null);
 
   const fetchPosts = useCallback(async (signal?: AbortSignal) => {
     if (signal?.aborted) return;
@@ -90,6 +91,14 @@ export default function PostsPage() {
     }
   };
 
+  const selectPost = (post: Post) => {
+    setSelectedPost(post);
+    // Below lg the detail replaces the list, so bring its top into view.
+    requestAnimationFrame(() => {
+      if (!window.matchMedia("(min-width: 64rem)").matches) detailPanel.current?.scrollIntoView({ block: "start" });
+    });
+  };
+
   const rescrapeState = selectedPost ? rescrapeSyncing[selectedPost.shortcode] : null;
 
   return (
@@ -99,7 +108,7 @@ export default function PostsPage() {
         <Select
           selectedKey={filterUser}
           onSelectionChange={(k) => { setPageIndex(0); setFilterUser(k as string); }}
-          className="flex flex-col gap-1 w-56"
+          className="flex flex-col gap-1 w-full sm:w-56"
         >
           <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Account</Label>
           <Button className="flex min-h-11 items-center justify-between w-full px-3 py-2 bg-background border border-input rounded-md text-sm text-foreground outline-none focus:ring-1 focus:ring-ring shadow-sm">
@@ -121,7 +130,7 @@ export default function PostsPage() {
             </ListBox>
           </Popover>
         </Select>
-        <div className="ml-auto flex items-center gap-3 text-sm">
+        <div className="flex w-full items-center justify-between gap-3 text-sm sm:ml-auto sm:w-auto sm:justify-start">
           <button type="button" disabled={pageIndex === 0 || loading} onClick={() => setPageIndex(page => page - 1)} className="min-h-11 rounded-md border border-input px-3 disabled:opacity-40">Previous</button>
           <span className="text-muted-foreground">Page {pageIndex + 1}</span>
           <button type="button" disabled={!hasMore || loading} onClick={() => setPageIndex(page => page + 1)} className="min-h-11 rounded-md border border-input px-3 disabled:opacity-40">Next</button>
@@ -133,7 +142,7 @@ export default function PostsPage() {
       <div className="flex flex-col gap-4 lg:h-[calc(100vh-280px)] lg:min-h-[500px] lg:flex-row">
 
         {/* LEFT: Compact list */}
-        <div className="max-h-96 w-full flex-shrink-0 bg-card lg:max-h-none lg:w-80 border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
+        <div className={`w-full flex-shrink-0 bg-card lg:w-80 border border-border rounded-lg shadow-sm overflow-hidden flex-col ${selectedPost ? "hidden lg:flex" : "flex"}`}>
           {/* Column headers */}
           <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 py-2.5 bg-muted/50 border-b border-border">
             <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Account</span>
@@ -143,17 +152,17 @@ export default function PostsPage() {
           </div>
 
           {loading ? (
-            <div className="flex-1 flex items-center justify-center gap-2 text-muted-foreground text-sm">
+            <div className="flex-1 flex items-center justify-center gap-2 py-12 text-muted-foreground text-sm">
               <RefreshCw className="w-4 h-4 animate-spin" /> Loading...
             </div>
           ) : posts.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">No posts found.</div>
+            <div className="flex-1 flex items-center justify-center py-12 text-muted-foreground text-sm">No posts found.</div>
           ) : (
             <div className="flex-1 overflow-y-auto">
               {posts.map((post) => (
                 <button
                   key={post.shortcode}
-                  onClick={() => setSelectedPost(post)}
+                  onClick={() => selectPost(post)}
                   className={`w-full text-left px-4 py-3 border-b border-border transition-colors outline-none last:border-0 ${
                     selectedPost?.shortcode === post.shortcode
                       ? "bg-primary/10 border-l-2 border-l-primary"
@@ -184,7 +193,7 @@ export default function PostsPage() {
         </div>
 
         {/* RIGHT: Detail panel */}
-        <div className="min-h-96 min-w-0 flex-1 bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
+        <div ref={detailPanel} className={`scroll-mt-3 min-h-96 min-w-0 flex-1 bg-card border border-border rounded-lg shadow-sm overflow-hidden flex-col ${selectedPost ? "flex" : "hidden lg:flex"}`}>
           {!selectedPost ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
               <p className="text-muted-foreground text-sm">Select a post from the list to view its details</p>
@@ -192,9 +201,17 @@ export default function PostsPage() {
           ) : (
             <>
               {/* Detail header */}
-              <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="font-semibold text-foreground">@{selectedPost.username}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedPost(null)}
+                className="flex min-h-11 items-center gap-2 border-b border-border px-4 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:hidden"
+              >
+                <ArrowLeft aria-hidden="true" className="size-4" />
+                Back to posts
+              </button>
+              <div className="px-4 sm:px-6 py-4 border-b border-border flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="font-semibold text-foreground [overflow-wrap:anywhere]">@{selectedPost.username}</span>
                   <Badge>
                     {selectedPost.is_video ? <Video aria-hidden="true" /> : <ImageIcon aria-hidden="true" />}
                     {selectedPost.is_video ? "Video" : "Photo"}
@@ -203,7 +220,7 @@ export default function PostsPage() {
                 {isAdmin && <Button
                   isDisabled={rescrapeState === "syncing"}
                   onPress={() => rescrapePost(selectedPost.shortcode)}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-md border transition-colors outline-none focus:ring-1 focus:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                  className={`flex min-h-11 items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-md border transition-colors outline-none focus:ring-1 focus:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                     rescrapeState === "done"
                       ? "bg-primary/10 text-primary border-primary/20"
                       : rescrapeState === "failed"
@@ -220,35 +237,35 @@ export default function PostsPage() {
               </div>
 
               {/* Stats row */}
-              <div className="px-6 py-4 border-b border-border flex flex-wrap items-center gap-6">
+              <div className="px-4 sm:px-6 py-4 border-b border-border flex flex-wrap items-center gap-x-6 gap-y-4">
                 <StatPill label="Likes" value={(selectedPost.likes ?? 0).toLocaleString()} />
                 <div className="w-px h-10 bg-border" />
                 <StatPill label="Comments" value={(selectedPost.comments ?? 0).toLocaleString()} />
                 <div className="w-px h-10 bg-border" />
                 <StatPill label="Views" value={selectedPost.views ? selectedPost.views.toLocaleString() : "N/A"} />
-                <div className="flex-1" />
-                <div className="text-right space-y-1">
-                  <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+                <div className="hidden sm:block flex-1" />
+                <div className="w-full sm:w-auto sm:text-right space-y-1">
+                  <div className="flex items-center sm:justify-end gap-1.5 text-[11px] text-muted-foreground">
                     <span>Posted: </span>
                     <span className="text-foreground font-medium">
                       {selectedPost.posted_timestamp ? new Date(selectedPost.posted_timestamp).toDateString() : "Not recorded"}
                     </span>
                   </div>
-                  <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+                  <div className="flex items-center sm:justify-end gap-1.5 text-[11px] text-muted-foreground">
                     <span>Scraped: </span>
                     <span className="text-foreground font-medium">
                       {selectedPost.scraped_timestamp ? new Date(selectedPost.scraped_timestamp).toLocaleString() : "legacy"}
                     </span>
                   </div>
-                  <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground font-mono">
+                  <div className="flex items-center sm:justify-end gap-1.5 text-[11px] text-muted-foreground font-mono">
                     <span className="font-sans">ID:</span>
-                    {selectedPost.shortcode}
+                    <span className="[overflow-wrap:anywhere]">{selectedPost.shortcode}</span>
                   </div>
                 </div>
               </div>
 
               {/* Caption */}
-              <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
                 <div className="mb-3">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Caption</p>
                 </div>

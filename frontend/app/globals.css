@@ -211,3 +211,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Touch devices: iOS Safari zooms into any field under 16px on focus.
+   Left unlayered so it wins over the text-sm utilities on inputs. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

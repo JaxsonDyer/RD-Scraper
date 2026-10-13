@@ -298,18 +298,18 @@ export default function ScraperPage() {
       {workerOnline === false && <p role="status" className="rounded-md border border-border p-4 text-sm text-muted-foreground">The scraper is offline. New jobs will stay queued until it reconnects.</p>}
       {/* Scheduler countdown + last run */}
       <section>
-        <div className="card-surface border border-border rounded-lg shadow-sm p-6">
-          <div className="flex items-center justify-between gap-6">
+        <div className="card-surface border border-border rounded-lg shadow-sm p-5 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
             <div className="flex items-start gap-4">
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Next Scheduled Scrape</p>
-                <p className="text-4xl font-mono font-bold text-primary tracking-tight">{countdown || "Pending"}</p>
+                <p className="text-3xl sm:text-4xl font-mono font-bold text-primary tracking-tight">{countdown || "Pending"}</p>
                 {nextRunTime && (
                   <p className="text-xs text-muted-foreground mt-1">{nextRunTime.toLocaleString()} ({scheduleTimezone})</p>
                 )}
               </div>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Last Run</p>
               <p className="text-sm font-medium text-foreground">
                 {lastRunDate ? new Date(lastRunDate).toDateString() : "Never"}
@@ -328,12 +328,12 @@ export default function ScraperPage() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm border-b border-border">
                   <tr>
-                    <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Date</th>
-                    <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Task</th>
-                    <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Started</th>
-                    <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Completed</th>
-                    <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Accounts</th>
-                    <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                    <th className="py-2.5 px-3 sm:px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Date</th>
+                    <th className="py-2.5 px-3 sm:px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Task</th>
+                    <th className="hidden md:table-cell py-2.5 px-3 sm:px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Started</th>
+                    <th className="hidden md:table-cell py-2.5 px-3 sm:px-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Completed</th>
+                    <th className="hidden sm:table-cell py-2.5 px-3 sm:px-4 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Accounts</th>
+                    <th className="py-2.5 px-3 sm:px-4 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -347,29 +347,29 @@ export default function ScraperPage() {
                     const isLatest = i === 0;
                     return (
                       <tr key={run.id} className="h-14 border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-4">
+                        <td className="py-3 px-3 sm:px-4">
                           <div className="flex items-center gap-2">
                             {isLatest && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                            <span className={`font-medium tabular-nums ${isLatest ? "text-foreground" : "text-muted-foreground"}`}>
+                            <span className={`font-medium tabular-nums whitespace-nowrap ${isLatest ? "text-foreground" : "text-muted-foreground"}`}>
                               {new Date(run.created_at).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                             </span>
-                            {isLatest && <Badge>Latest</Badge>}
+                            {isLatest && <Badge className="hidden sm:inline-flex">Latest</Badge>}
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-xs">{run.kind.replaceAll("_", " ")}</td>
-                        <td className="py-3 px-4 text-muted-foreground tabular-nums text-xs">{start?.toLocaleTimeString() ?? "—"}</td>
-                        <td className="py-3 px-4 tabular-nums text-xs">
+                        <td className="py-3 px-3 sm:px-4 text-xs">{run.kind.replaceAll("_", " ")}</td>
+                        <td className="hidden md:table-cell py-3 px-3 sm:px-4 text-muted-foreground tabular-nums text-xs">{start?.toLocaleTimeString() ?? "—"}</td>
+                        <td className="hidden md:table-cell py-3 px-3 sm:px-4 tabular-nums text-xs whitespace-nowrap">
                           <span className="text-muted-foreground">{end?.toLocaleTimeString() ?? "—"}</span>
                           <span className="ml-2 text-[10px] text-muted-foreground/60">{end && start ? `(${durationStr})` : ""}</span>
                         </td>
-                        <td className="py-3 px-4 text-right tabular-nums text-foreground font-medium">{run.accounts_scraped}</td>
-                        <td className="py-1.5 px-4 text-right">
+                        <td className="hidden sm:table-cell py-3 px-3 sm:px-4 text-right tabular-nums text-foreground font-medium">{run.accounts_scraped}</td>
+                        <td className="py-1.5 px-3 sm:px-4 text-right">
                           {run.error || run.status === "error" ? (
                             <Link
                               href={`/scraper/runs/${encodeURIComponent(run.id)}`}
                               aria-label={`Error: ${getRunErrorSummary(run.error)}. View run details.`}
                               title={getRunErrorSummary(run.error)}
-                              className="group inline-flex min-h-11 max-w-72 items-center gap-2 rounded-sm text-xs text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              className="group inline-flex min-h-11 max-w-40 sm:max-w-72 items-center gap-2 rounded-sm text-xs text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                               <AlertCircle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
                               <span className="truncate">{getRunErrorSummary(run.error)}</span>
@@ -394,18 +394,18 @@ export default function ScraperPage() {
 
         {/* Global Configuration */}
         <section className="bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
-          <div className="px-6 py-4 border-b border-border">
+          <div className="px-4 sm:px-6 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Global Configuration</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Automated schedule and target management.</p>
           </div>
 
-          <div className="p-6 space-y-5 flex-1">
+          <div className="p-4 sm:p-6 space-y-5 flex-1">
             {/* Target accounts */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Target Accounts</Label>
               <div className="flex gap-2">
-                <Input value={newAccount} onChange={e => setNewAccount(e.target.value)} onKeyDown={(e) => { if(e.key === "Enter") addAccount(); }} placeholder="Add account e.g. reddeer" className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none flex-1" />
-                <Button onPress={addAccount} className="inline-flex items-center gap-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium text-sm py-2 px-3 rounded-md transition-colors outline-none cursor-pointer">
+                <Input value={newAccount} onChange={e => setNewAccount(e.target.value)} onKeyDown={(e) => { if(e.key === "Enter") addAccount(); }} placeholder="Add account e.g. reddeer" className="min-w-0 bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none flex-1" />
+                <Button onPress={addAccount} className="inline-flex min-h-11 items-center gap-1.5 bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium text-sm py-2 px-3 rounded-md transition-colors outline-none cursor-pointer">
                   Add
                 </Button>
               </div>
@@ -421,9 +421,9 @@ export default function ScraperPage() {
                     <tbody>
                       {targetAccounts.map((account) => (
                         <tr key={account} className="border-b border-border last:border-none hover:bg-muted/40 transition-colors">
-                          <td className="py-2 px-3 font-medium text-foreground text-sm">@{account}</td>
-                          <td className="py-2 px-3 text-right">
-                            <button onClick={() => removeAccount(account)} className="inline-flex items-center gap-1 text-destructive hover:text-destructive/80 text-xs font-medium cursor-pointer">
+                          <td className="py-2 px-3 font-medium text-foreground text-sm [overflow-wrap:anywhere]">@{account}</td>
+                          <td className="py-0 px-3 text-right">
+                            <button onClick={() => removeAccount(account)} className="inline-flex min-h-11 items-center gap-1 text-destructive hover:text-destructive/80 text-xs font-medium cursor-pointer">
                               Remove
                             </button>
                           </td>
@@ -441,7 +441,7 @@ export default function ScraperPage() {
             <Checkbox
               isSelected={schedulerEnabled}
               onChange={setSchedulerEnabled}
-              className="group flex items-center gap-2.5 text-sm font-medium text-foreground cursor-pointer"
+              className="group flex min-h-11 items-center gap-2.5 text-sm font-medium text-foreground cursor-pointer"
             >
               <span className="flex size-4 items-center justify-center rounded border border-border bg-background group-data-[selected]:border-primary group-data-[selected]:bg-primary group-data-[focus-visible]:ring-2 group-data-[focus-visible]:ring-ring">
                 <svg className="size-2.5 text-primary-foreground opacity-0 group-data-[selected]:opacity-100" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3 8L6 11L11 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -468,7 +468,7 @@ export default function ScraperPage() {
           </div>
 
           {/* AI Intelligence Configuration */}
-          <div className="px-6 py-4 border-t border-b border-border bg-muted/10">
+          <div className="px-4 sm:px-6 py-4 border-t border-b border-border bg-muted/10">
             <h3 className="text-xs font-semibold text-foreground mb-4">AI Intelligence Pipeline</h3>
             <div className="space-y-4">
               <div className="rounded-md border border-border bg-background/70 p-4 space-y-3">
@@ -564,7 +564,7 @@ export default function ScraperPage() {
               </div>
             </div>
             <div className="pt-4 flex justify-end">
-              <Button onPress={generateInsights} isDisabled={generatingInsights || aiStatus?.state === "running" || aiStatus?.state === "queued"} className="inline-flex items-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 font-medium text-xs py-1.5 px-4 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
+              <Button onPress={generateInsights} isDisabled={generatingInsights || aiStatus?.state === "running" || aiStatus?.state === "queued"} className="inline-flex min-h-11 w-full sm:w-auto items-center justify-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 font-medium text-xs py-1.5 px-4 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
                 {(generatingInsights || aiStatus?.state === "running") && <RefreshCw className="w-3 h-3 animate-spin" />}
                 {generatingInsights ? "Dispatching..." : aiStatus?.state === "queued" ? "Queued..." : aiStatus?.state === "running" ? "Generating..." : "Regenerate Intelligence"}
               </Button>
@@ -572,12 +572,12 @@ export default function ScraperPage() {
           </div>
 
           {/* Actions pinned at bottom */}
-          <div className="px-6 py-4 border-t border-border flex gap-3 bg-muted/20">
-            <Button onPress={saveConfig} isDisabled={configSaving} className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm py-2 px-5 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
+          <div className="px-4 sm:px-6 py-4 border-t border-border flex flex-wrap gap-3 bg-muted/20">
+            <Button onPress={saveConfig} isDisabled={configSaving} className="inline-flex min-h-11 items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm py-2 px-5 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
               {configSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               {configSaving ? "Saving..." : "Save"}
             </Button>
-            <Button onPress={forceScrape} isDisabled={forceScraping} className="inline-flex items-center gap-2 bg-background border border-input hover:bg-accent text-foreground font-medium text-sm py-2 px-5 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
+            <Button onPress={forceScrape} isDisabled={forceScraping} className="inline-flex min-h-11 items-center gap-2 bg-background border border-input hover:bg-accent text-foreground font-medium text-sm py-2 px-5 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
               {forceScraping && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               {forceScraping ? "Dispatching..." : "Force Scrape"}
             </Button>
@@ -586,18 +586,18 @@ export default function ScraperPage() {
 
         {/* Deep Scrape Toolkit */}
         <section className="bg-card border border-border rounded-lg shadow-sm overflow-hidden flex flex-col">
-          <div className="px-6 py-4 border-b border-border">
+          <div className="px-4 sm:px-6 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Deep Scrape Toolkit</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Paginated extraction under rate limits for full account history.</p>
           </div>
 
-          <div className="p-6 space-y-5 flex-1">
+          <div className="p-4 sm:p-6 space-y-5 flex-1">
             <div className="flex items-end gap-3">
               <TextField value={deepUsername} onChange={setDeepUsername} className="flex flex-col flex-1 gap-1">
                 <Label className="text-xs text-muted-foreground font-medium">Target Username</Label>
                 <Input placeholder="e.g. reddeer" className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none" />
               </TextField>
-              <Button onPress={analyzeAccount} isDisabled={analyzing || !deepUsername} className="inline-flex items-center gap-2 bg-background border border-input hover:bg-accent text-foreground font-medium text-sm py-2 px-4 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
+              <Button onPress={analyzeAccount} isDisabled={analyzing || !deepUsername} className="inline-flex min-h-11 items-center gap-2 bg-background border border-input hover:bg-accent text-foreground font-medium text-sm py-2 px-4 rounded-md transition-colors disabled:opacity-50 outline-none cursor-pointer">
                 {analyzing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 {analyzing ? "..." : "Analyze"}
               </Button>
@@ -615,7 +615,7 @@ export default function ScraperPage() {
                   <Input type="number" max={maxPosts} className="bg-background border border-input p-2 rounded-md text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground" />
                 </TextField>
 
-                <Checkbox isSelected={selectAll} onChange={handleSelectAll} className="group flex gap-2.5 items-center text-sm font-medium text-foreground cursor-pointer">
+                <Checkbox isSelected={selectAll} onChange={handleSelectAll} className="group flex min-h-11 gap-2.5 items-center text-sm font-medium text-foreground cursor-pointer">
                   <div className="w-4 h-4 rounded border border-border bg-background group-data-[selected]:bg-primary group-data-[selected]:border-primary flex items-center justify-center transition">
                     <svg className="w-2.5 h-2.5 text-primary-foreground opacity-0 group-data-[selected]:opacity-100 transition" viewBox="0 0 14 14" fill="none"><path d="M3 8L6 11L11 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </div>
