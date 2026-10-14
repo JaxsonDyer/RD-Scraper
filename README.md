@@ -1,6 +1,10 @@
+<img src="frontend/public/logo.png" alt="RDD logo" width="96" height="96">
+
 # RD Scraper
 
 Instagram collection and analytics dashboard for Red Deer area accounts.
+
+**Live site:** [rd.jaxsondyer.com](https://rd.jaxsondyer.com)
 
 - **Dashboard and API:** Next.js, deployed to Vercel.
 - **Login:** optional Google OAuth through Supabase Auth.

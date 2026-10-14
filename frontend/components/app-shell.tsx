@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import Image from "next/image";
 import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { SidebarAccount } from "@/components/sidebar-account";
@@ -70,7 +71,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         <div className="flex h-full w-68 flex-col overflow-y-auto pr-3">
           <div className="mb-6 flex shrink-0 items-center justify-between gap-2 px-2 pt-2">
-            <h2 className="whitespace-nowrap text-2xl font-semibold tracking-tight text-sidebar-foreground">
+            <h2 className="flex items-center gap-3 whitespace-nowrap text-2xl font-semibold tracking-tight text-sidebar-foreground">
+              <Image src="/logo.png" alt="" width={36} height={36} priority className="size-9 shrink-0" />
               RedDeer Scraper
             </h2>
             <button
@@ -108,8 +110,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Menu className="size-5 lg:hidden" aria-hidden="true" />
             <ToggleIcon className="hidden size-5 lg:block" aria-hidden="true" />
           </button>
-          <span className="truncate text-base font-semibold tracking-tight text-foreground lg:hidden">
-            RedDeer Scraper
+          <span className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-foreground lg:hidden">
+            <Image src="/logo.png" alt="" width={28} height={28} className="size-7 shrink-0" />
+            <span className="truncate">RedDeer Scraper</span>
           </span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-8 pt-3 sm:px-6 sm:pt-4 lg:p-10 lg:pt-4">

@@ -36,7 +36,7 @@ If analytics should become private, change the read policies and page guards tog
    Vercel assigns it. Add exact allowed redirect URLs:
    - `http://localhost:3000/auth/callback`
    - `https://YOUR_APP.vercel.app/auth/callback`
-   - Your custom domain's `/auth/callback`, if you use one.
+   - `https://rd.jaxsondyer.com/auth/callback` (the production domain).
 6. Add your Google account as a test user while the consent screen is in testing mode.
    Before public launch, finish Google's publishing/verification steps if requested.
 
