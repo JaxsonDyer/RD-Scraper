@@ -18,3 +18,9 @@ export function sameOrigin(request: Request) {
   if (!origin) return false;
   try { return origin === requestOrigin(request); } catch { return false; }
 }
+
+// Email sign-in exists only for local debugging. `next build` always sets NODE_ENV to
+// production, so no deployment can turn it on, whatever its environment variables say.
+export function devLoginEnabled(env: { NODE_ENV?: string } = process.env) {
+  return env.NODE_ENV === 'development';
+}

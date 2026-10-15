@@ -38,7 +38,7 @@ export function SidebarAccount() {
 
   if (!user) {
     return (
-      <Link href="/login" className="flex min-h-11 items-center rounded-md px-3 text-sm text-sidebar-foreground/80 hover:bg-sidebar-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+      <Link href="/login" className="flex min-h-11 items-center rounded-lg px-3 text-sm text-sidebar-foreground/80 hover:bg-sidebar-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
         Sign in
       </Link>
     );
@@ -56,14 +56,14 @@ export function SidebarAccount() {
       <MenuTrigger>
         <Button
           aria-label="Account menu"
-          className="flex size-11 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/80 outline-none transition-colors hover:bg-sidebar-foreground/5 focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[pressed]:bg-sidebar-foreground/5"
+          className="flex size-11 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/80 outline-none transition-colors hover:bg-sidebar-foreground/5 focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[pressed]:bg-sidebar-foreground/5"
         >
           <MoreVertical className="size-5" aria-hidden="true" />
         </Button>
-        <Popover placement="top end" offset={8} className="z-50 w-56 rounded-lg border border-border bg-popover p-1 text-popover-foreground">
+        <Popover placement="top end" offset={8} className="z-50 w-56 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">
           <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">Signed in as {isAdmin ? "Admin" : "Viewer"}</p>
           <Menu aria-label="Account options" className="outline-none" onAction={() => signOutForm.current?.requestSubmit()}>
-            <MenuItem id="signout" textValue="Sign out" className="mt-1 flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm outline-none data-[focused]:bg-accent data-[focused]:text-accent-foreground">
+            <MenuItem id="signout" textValue="Sign out" className="mt-1 flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm outline-none data-[focused]:bg-muted data-[focused]:text-foreground">
               <LogOut className="size-4" aria-hidden="true" />
               Sign out
             </MenuItem>

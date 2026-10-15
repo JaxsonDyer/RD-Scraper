@@ -2,9 +2,16 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
-import { SidebarNav } from "@/components/sidebar-nav";
+import { SidebarNav, navItems } from "@/components/sidebar-nav";
 import { SidebarAccount } from "@/components/sidebar-account";
+import { HeaderActionsSlot } from "@/components/page-header";
+import { buttonVariants } from "@/components/ui/styles";
+import { cn } from "@/lib/utils";
+
+// Pages below a nav item that need their own title in the header.
+const subpageTitles = [{ prefix: "/scraper/runs/", label: "Run details" }];
 
 // Matches Tailwind's `lg` breakpoint: below it the sidebar becomes an overlay drawer.
 const DESKTOP_QUERY = "(min-width: 64rem)";
@@ -21,6 +28,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => window.matchMedia(DESKTOP_QUERY).matches,
     () => true,
   );
+  const pathname = usePathname();
+  // Every page's title lives in this header, so pages don't render their own h1.
+  const title = navItems.find(item => item.href === pathname)?.label
+    ?? subpageTitles.find(item => pathname.startsWith(item.prefix))?.label;
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const [desktopOpen, setDesktopOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const toggleButton = useRef<HTMLButtonElement>(null);
@@ -80,7 +92,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label="Close sidebar"
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/80 transition-colors hover:bg-sidebar-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring lg:hidden"
+              className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "size-11 text-sidebar-foreground/80 lg:hidden [&_svg]:size-5")}
             >
               <X className="size-5" aria-hidden="true" />
             </button>
@@ -96,27 +108,32 @@ export function AppShell({ children }: { children: ReactNode }) {
         inert={drawerOpen}
         className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-background sm:rounded-[28px]"
       >
-        <div className="flex shrink-0 items-center gap-2 px-3 pt-3 sm:px-5 sm:pt-4 lg:px-9">
-          <button
-            ref={toggleButton}
-            type="button"
-            onClick={() => (isDesktop ? setDesktopOpen((open) => !open) : setMobileOpen(true))}
-            aria-label={toggleLabel}
-            aria-expanded={sidebarOpen}
-            aria-controls="app-sidebar"
-            title={toggleLabel}
-            className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none lg:size-10"
-          >
-            <Menu className="size-5 lg:hidden" aria-hidden="true" />
-            <ToggleIcon className="hidden size-5 lg:block" aria-hidden="true" />
-          </button>
-          <span className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-foreground lg:hidden">
-            <Image src="/logo.png" alt="" width={28} height={28} className="size-7 shrink-0" />
-            <span className="truncate">RedDeer Scraper</span>
-          </span>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto px-4 pb-8 pt-3 sm:px-6 sm:pt-4 lg:p-10 lg:pt-4">
-          <div className="mx-auto max-w-7xl">{children}</div>
+        <header className="shrink-0 px-4 pt-3 sm:px-6 sm:pt-4 lg:px-10 lg:pt-6">
+          <div className="mx-auto flex min-h-11 max-w-7xl items-center gap-2 sm:gap-3">
+            <button
+              ref={toggleButton}
+              type="button"
+              onClick={() => (isDesktop ? setDesktopOpen((open) => !open) : setMobileOpen(true))}
+              aria-label={toggleLabel}
+              aria-expanded={sidebarOpen}
+              aria-controls="app-sidebar"
+              title={toggleLabel}
+              className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "-ml-2.5 mr-1 size-11 lg:mr-4 lg:size-10 [&_svg]:size-5")}
+            >
+              <Menu className="size-5 lg:hidden" aria-hidden="true" />
+              <ToggleIcon className="hidden size-5 lg:block" aria-hidden="true" />
+            </button>
+            <Image src="/logo.png" alt="" width={28} height={28} className="size-7 shrink-0 lg:hidden" />
+            {title
+              ? <h1 className="truncate text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{title}</h1>
+              : <span className="truncate text-base font-semibold tracking-tight text-foreground lg:hidden">RedDeer Scraper</span>}
+            <div ref={setActionsSlot} className="ml-auto flex shrink-0 items-center gap-3" />
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-8 pt-5 sm:px-6 sm:pt-6 lg:px-10 lg:pb-10">
+          <div className="mx-auto max-w-7xl">
+            <HeaderActionsSlot.Provider value={actionsSlot}>{children}</HeaderActionsSlot.Provider>
+          </div>
         </div>
       </main>
     </div>

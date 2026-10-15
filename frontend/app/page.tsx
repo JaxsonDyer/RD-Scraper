@@ -1,14 +1,22 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import {
-  RefreshCw, ChevronDown, ChevronRight,
-} from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip,
   CartesianGrid, Legend,
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
+import { HeaderActions } from "@/components/page-header";
+import { RelativeTime } from "@/components/relative-time";
+import { formatDate, formatShortDate } from "@/lib/format-date";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, Section } from "@/components/ui/card";
+import { Notice } from "@/components/ui/notice";
+import { TextSkeleton } from "@/components/ui/skeleton";
+import { LoadingState } from "@/components/ui/spinner";
+import { Stat, StatSkeleton } from "@/components/ui/stat";
+import { Table, TableFrame, TableHead, Td, Th, Tr } from "@/components/ui/table";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -62,24 +70,14 @@ type AiInsights = {
 
 // ─── Sub-components ───────────────────────────────────────────────────────
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function Monogram({ name }: { name: string }) {
+  const words = name.replace(/^@/, "").split(/[\s._]+/).filter(Boolean);
+  // First and last word: "Red Deer VIBIN" and "Red Deer Polytechnic" share a prefix but not an ending.
+  const initials = (words.length > 1 ? words[0][0] + words[words.length - 1][0] : name.replace(/^@/, "").slice(0, 2)).toUpperCase();
   return (
-    <div className="min-w-0 card-surface border border-border rounded-lg shadow-sm p-4 sm:p-5">
-      <p className="text-xl sm:text-2xl font-bold text-foreground tabular-nums">{value}</p>
-      <p className="text-xs font-medium text-muted-foreground mt-0.5 uppercase tracking-wider">{label}</p>
-    </div>
-  );
-}
-
-function AICard({ badge, title, children }: { badge: string; title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-card border border-border rounded-lg shadow-sm p-5 sm:p-6 flex flex-col gap-4">
-      <span className="text-[10px] font-semibold text-primary uppercase tracking-widest">{badge}</span>
-      <div>
-        <h3 className="font-semibold text-foreground mb-2">{title}</h3>
-        {children}
-      </div>
-    </div>
+    <span aria-hidden="true" className="hidden size-8 sm:flex shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[11px] font-semibold tracking-wide text-foreground/80">
+      {initials}
+    </span>
   );
 }
 
@@ -117,70 +115,60 @@ function AccountCharts({ username }: { username: string }) {
       .finally(() => setLoading(false));
   }, [username]);
 
-  if (loading) return (
-    <div className="flex items-center gap-2 p-6 text-muted-foreground text-sm bg-muted/20 border-t border-border">
-      <RefreshCw className="w-4 h-4 animate-spin" /> Loading history for @{username}...
-    </div>
-  );
+  if (loading) return <LoadingState label={`Loading history for @${username}...`} className="justify-start border-t border-border p-6" />;
 
   const hasProfile = history && history.profile_history.length > 0;
   const hasEngagement = history && history.engagement_history.length > 0;
 
   if (!hasProfile && !hasEngagement) return (
-    <div className="p-6 text-sm text-muted-foreground bg-muted/20 border-t border-border">
-      No historical data yet for @{username}.
-    </div>
+    <p className="border-t border-border p-6 text-sm text-muted-foreground">No historical data yet for @{username}.</p>
   );
 
   const profileData = (history?.profile_history ?? []).map(p => ({
     ...p,
-    date: new Date(p.date_checked).toLocaleDateString("en-CA", { month: "short", day: "numeric" }),
+    date: formatShortDate(p.date_checked),
   }));
 
   const engagementData = (history?.engagement_history ?? []).map(e => ({
     ...e,
-    date: new Date(e.scrape_date).toLocaleDateString("en-CA", { month: "short", day: "numeric" }),
+    date: formatShortDate(e.scrape_date),
   }));
 
   return (
-    <div className="bg-muted/20 border-t border-border">
-      <div className="px-4 sm:px-6 pt-5 pb-6 space-y-8">
+    <div className="border-t border-border">
+      <div className="space-y-8 px-4 pt-5 pb-6 sm:px-6">
 
         {/* History sweep table */}
         {hasProfile && (
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">All Recorded Sweeps</p>
-            <div className="border border-border rounded-md max-h-48 overflow-auto">
-              <table className="w-full text-xs whitespace-nowrap">
-                <thead>
-                  <tr className="bg-muted/60 border-b border-border">
-                    <th className="py-2 px-3 text-left font-medium text-muted-foreground">Date</th>
-                    <th className="py-2 px-3 text-right font-medium text-muted-foreground">Followers</th>
-                    <th className="py-2 px-3 text-right font-medium text-muted-foreground">Following</th>
-                    <th className="py-2 px-3 text-right font-medium text-muted-foreground">Total Posts</th>
-                  </tr>
-                </thead>
+            <h4 className="mb-3 text-sm font-medium text-foreground">All recorded sweeps</h4>
+            <TableFrame className="max-h-48 overflow-auto">
+              <Table className="whitespace-nowrap">
+                <TableHead sticky>
+                  <Th>Date</Th>
+                  <Th align="right">Followers</Th>
+                  <Th align="right">Following</Th>
+                  <Th align="right">Total posts</Th>
+                </TableHead>
                 <tbody>
                   {[...history!.profile_history].reverse().map((row, i) => (
-                    <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors">
-                      <td className="py-2 px-3 text-muted-foreground">{new Date(row.date_checked).toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right font-medium text-foreground tabular-nums">{row.followers.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right text-foreground tabular-nums">{row.following.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right text-foreground tabular-nums">{row.total_posts.toLocaleString()}</td>
-                    </tr>
+                    <Tr key={i}>
+                      <Td className="py-2 text-muted-foreground">{formatDate(row.date_checked)}</Td>
+                      <Td align="right" className="py-2 tabular-nums">{row.followers.toLocaleString()}</Td>
+                      <Td align="right" className="py-2 tabular-nums">{row.following.toLocaleString()}</Td>
+                      <Td align="right" className="py-2 tabular-nums">{row.total_posts.toLocaleString()}</Td>
+                    </Tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+              </Table>
+            </TableFrame>
           </div>
         )}
 
         {/* Profile growth chart */}
         {hasProfile && profileData.length > 1 && (
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-              Profile Growth Trend
-            </p>
+            <h4 className="mb-4 text-sm font-medium text-foreground">Profile growth trend</h4>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={profileData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
@@ -199,9 +187,7 @@ function AccountCharts({ username }: { username: string }) {
         {/* Engagement chart */}
         {hasEngagement && engagementData.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-              Scrape-Day Engagement
-            </p>
+            <h4 className="mb-4 text-sm font-medium text-foreground">Scrape-day engagement</h4>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={engagementData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
@@ -235,181 +221,200 @@ export default function OverviewPage() {
   const [aiLoading, setAiLoading] = useState(true);
   const [aiLastRefreshed, setAiLastRefreshed] = useState<string | null>(null);
 
-  useEffect(() => {
-    Promise.all([
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback(() => Promise.all([
       fetch("/api/accounts").then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || "Could not load accounts."); return data; }),
       fetch("/api/stats").then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || "Could not load statistics."); return data; }),
     ])
       .then(([accountData, statsData]) => {
         setAccounts(accountData.accounts || []);
         setTotals(statsData.totals || null);
+        setDataError(null);
       })
       .catch(err => setDataError(err instanceof Error ? err.message : "Could not load analytics."))
-      .finally(() => setLoading(false));
+      .finally(() => setLoading(false)), []);
 
-    const loadAiInsights = () => {
-      fetch("/api/ai-insights")
-        .then(r => r.json())
-        .then(d => {
-          if (!d.error) {
-            setAiInsights(d);
-            setAiLastRefreshed(d._meta?.last_refreshed || null);
-          }
-        })
-        .catch(err => console.error("Failed to fetch AI insights", err))
-        .finally(() => setAiLoading(false));
-    };
+  const loadAiInsights = useCallback(() => fetch("/api/ai-insights")
+      .then(r => r.json())
+      .then(d => {
+        if (!d.error) {
+          setAiInsights(d);
+          setAiLastRefreshed(d._meta?.last_refreshed || null);
+        }
+      })
+      .catch(err => console.error("Failed to fetch AI insights", err))
+      .finally(() => setAiLoading(false)), []);
 
-    loadAiInsights();
+  useEffect(() => {
+    void loadData();
+    void loadAiInsights();
     const aiPollInterval = setInterval(loadAiInsights, 10000);
     return () => clearInterval(aiPollInterval);
-  }, []);
+  }, [loadData, loadAiInsights]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadData(), loadAiInsights()]);
+    setRefreshing(false);
+  };
+
+  // A column where every row says the same thing carries no information.
+  const showType = new Set(accounts.map(account => account.is_business)).size > 1;
 
   const toggleAccount = (username: string) => {
     setExpandedAccount(prev => prev === username ? null : username);
   };
 
+  const insightBody = (content: React.ReactNode) => aiLoading ? <TextSkeleton /> : aiInsights ? content : (
+    <p className="text-sm leading-relaxed text-destructive">Failed to generate intelligence data.</p>
+  );
+
   return (
     <div className="space-y-10">
-      {dataError && <p role="alert" className="text-sm text-destructive">{dataError} <button type="button" onClick={() => window.location.reload()} className="min-h-11 underline">Retry</button></p>}
-      {/* Aggregate stats bar */}
-      <section>
-        {loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground text-sm"><RefreshCw className="w-4 h-4 animate-spin" /> Loading...</div>
-        ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <StatCard label="Posts Scraped" value={(totals?.total_posts ?? 0).toLocaleString()} />
-            <StatCard label="Total Likes" value={(totals?.total_likes ?? 0).toLocaleString()} />
-            <StatCard label="Total Comments" value={(totals?.total_comments ?? 0).toLocaleString()} />
-            <StatCard label="Total Views" value={(totals?.total_views ?? 0).toLocaleString()} />
-          </div>
-        )}
-      </section>
+      <HeaderActions>
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          Insights updated{" "}
+          {aiLastRefreshed ? <RelativeTime value={aiLastRefreshed} /> : "never"}
+        </p>
+        <Button onPress={() => void refresh()} loading={refreshing} icon={<RefreshCw className="text-muted-foreground" aria-hidden="true" />}
+          aria-label="Refresh" className="px-2.5 sm:px-3.5">
+          <span className="hidden sm:inline">{refreshing ? "Refreshing" : "Refresh"}</span>
+        </Button>
+      </HeaderActions>
 
-      {/* AI Summary */}
-      <section>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-4">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">AI Local Area Intelligence</h2>
-          <div className="sm:ml-auto flex items-center gap-3">
-            <span className="text-[10px] text-muted-foreground">
-              Last refreshed: {aiLastRefreshed ? new Date(aiLastRefreshed).toLocaleString() : "Never"}
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <AICard badge="Community Pulse" title="Trending Themes This Week">
-            {aiLoading ? (
-               <div className="flex justify-center py-4"><RefreshCw className="w-5 h-5 text-muted-foreground animate-spin" /></div>
-            ) : aiInsights ? (
-               <p className="text-sm text-muted-foreground leading-relaxed">{aiInsights.communityPulse}</p>
-            ) : (
-               <p className="text-sm text-destructive leading-relaxed">Failed to generate intelligence data.</p>
-            )}
-          </AICard>
-          <AICard badge="Viral Anomaly" title="Breakout Post of the Week">
-            {aiLoading ? (
-               <div className="flex justify-center py-4"><RefreshCw className="w-5 h-5 text-muted-foreground animate-spin" /></div>
-            ) : aiInsights ? (
-               <p className="text-sm text-muted-foreground leading-relaxed">{aiInsights.viralAnomaly}</p>
-            ) : (
-               <p className="text-sm text-destructive leading-relaxed">Failed to generate intelligence data.</p>
-            )}
-          </AICard>
-          <AICard badge="Sector Momentum" title="Who Is Winning the Local Feed?">
-            {aiLoading ? (
-               <div className="flex justify-center py-4"><RefreshCw className="w-5 h-5 text-muted-foreground animate-spin" /></div>
-            ) : aiInsights ? (
-               <ul className="space-y-3">
-                 {aiInsights.sectorMomentum.map((item, i) => (
-                   <li key={i} className="flex items-start gap-2 text-sm">
-                     <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-                     <span className="leading-relaxed text-muted-foreground">{item}</span>
-                   </li>
-                 ))}
-               </ul>
-            ) : (
-               <p className="text-sm text-destructive leading-relaxed">Failed to generate intelligence data.</p>
-            )}
-          </AICard>
-          <AICard badge="Underperformers" title="Posts That Fell Short">
-            {aiLoading ? (
-               <div className="flex justify-center py-4"><RefreshCw className="w-5 h-5 text-muted-foreground animate-spin" /></div>
-            ) : !aiInsights ? (
-               <p className="text-sm text-destructive leading-relaxed">Failed to generate intelligence data.</p>
-            ) : !aiInsights.underperformers ? (
-               <p className="text-sm text-muted-foreground leading-relaxed">Generate insights again to see this section.</p>
-            ) : aiInsights.underperformers.length === 0 ? (
-               <p className="text-sm text-muted-foreground leading-relaxed">No posts fell well below their account&apos;s usual engagement.</p>
-            ) : (
-               <ul className="space-y-3">
-                 {aiInsights.underperformers.map(item => (
-                   <li key={item.shortcode} className="flex items-start gap-2 text-sm">
-                     <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
-                     <span className="leading-relaxed text-muted-foreground">
-                       <a href={`https://www.instagram.com/p/${encodeURIComponent(item.shortcode)}/`} target="_blank" rel="noopener noreferrer"
-                         className="font-medium text-foreground underline underline-offset-2">@{item.username}</a>{" "}
-                       {item.reason}
-                     </span>
-                   </li>
-                 ))}
-               </ul>
-            )}
-          </AICard>
+      {dataError && (
+        <Notice tone="error" action={<Button size="sm" variant="ghost" onPress={() => window.location.reload()}>Retry</Button>}>
+          {dataError}
+        </Notice>
+      )}
+
+      <section aria-label="Totals" aria-busy={loading}>
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          {loading ? [0, 1, 2, 3].map(i => <StatSkeleton key={i} />) : (
+            <>
+              <Stat label="Posts scraped" value={(totals?.total_posts ?? 0).toLocaleString()} />
+              <Stat label="Total likes" value={(totals?.total_likes ?? 0).toLocaleString()} />
+              <Stat label="Total comments" value={(totals?.total_comments ?? 0).toLocaleString()} />
+              <Stat label="Total views" value={(totals?.total_views ?? 0).toLocaleString()} />
+            </>
+          )}
         </div>
       </section>
 
-      {/* Monitored Accounts + expandable charts */}
-      <section>
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Monitored Accounts</h2>
-        <div className="bg-card border border-border rounded-lg overflow-x-auto shadow-sm">
-          {loading ? (
-            <div className="p-8 text-center text-muted-foreground flex items-center justify-center gap-2">
-              <RefreshCw className="w-4 h-4 animate-spin" /> Loading metrics...
-            </div>
-          ) : (
-          <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/50 border-b border-border">
-                  <th className="py-3 px-2 w-8" />
-                  <th className="py-3 px-3 sm:px-4 text-left font-medium text-muted-foreground">Target</th>
-                  <th className="hidden sm:table-cell py-3 px-3 sm:px-4 text-left font-medium text-muted-foreground">Type</th>
-                  <th className="py-3 px-3 sm:px-4 text-left font-medium text-muted-foreground">Followers</th>
-                  <th className="hidden md:table-cell py-3 px-3 sm:px-4 text-left font-medium text-muted-foreground">Following</th>
-                  <th className="py-3 px-3 sm:px-4 text-left font-medium text-muted-foreground">Posts</th>
-                  <th className="hidden md:table-cell py-3 px-3 sm:px-4 text-left font-medium text-muted-foreground">Last Checked</th>
-                </tr>
-              </thead>
+      <Section title="AI Local Area Intelligence" id="insights-heading">
+        {/* Two independent columns so each card keeps its natural height. */}
+        <div className="grid grid-cols-1 items-start gap-3 sm:gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-3 sm:gap-4">
+            <Card as="article">
+              <CardHeader title="Trending Themes This Week" className="mb-2.5" />
+              {insightBody(<p className="text-sm leading-relaxed text-foreground/80">{aiInsights?.communityPulse}</p>)}
+            </Card>
+            <Card as="article">
+              <CardHeader title="Breakout Post of the Week" className="mb-2.5" />
+              {insightBody(<p className="text-sm leading-relaxed text-foreground/80">{aiInsights?.viralAnomaly}</p>)}
+            </Card>
+          </div>
+          <div className="flex flex-col gap-3 sm:gap-4">
+            <Card as="article">
+              <CardHeader title="Who Is Winning the Local Feed?" className="mb-2.5" />
+              {insightBody(
+                <ul className="space-y-2.5">
+                  {aiInsights?.sectorMomentum.map((item, i) => (
+                    <li key={i} className="flex items-start gap-2.5 text-sm">
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true" />
+                      <span className="leading-relaxed text-foreground/80">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+            <Card as="article">
+              <CardHeader title="Posts That Fell Short" className="mb-2.5" />
+              {insightBody(!aiInsights?.underperformers ? (
+                <p className="text-sm leading-relaxed text-muted-foreground">Generate insights again to see this section.</p>
+              ) : aiInsights.underperformers.length === 0 ? (
+                <p className="text-sm leading-relaxed text-muted-foreground">No posts fell well below their account&apos;s usual engagement.</p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {aiInsights.underperformers.map(item => (
+                    <li key={item.shortcode} className="flex items-start gap-2.5 text-sm">
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden="true" />
+                      <span className="leading-relaxed text-foreground/80">
+                        <a href={`https://www.instagram.com/p/${encodeURIComponent(item.shortcode)}/`} target="_blank" rel="noopener noreferrer"
+                          className="rounded-sm font-medium text-foreground underline decoration-brand/60 underline-offset-[3px] transition-colors hover:decoration-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">@{item.username}</a>{" "}
+                        {item.reason}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ))}
+            </Card>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Monitored Accounts" id="accounts-heading">
+        <TableFrame>
+          {loading ? <LoadingState label="Loading metrics..." /> : (
+            <Table>
+              <TableHead>
+                <Th className="w-10 pl-1.5 pr-0 sm:w-11 sm:pl-2"><span className="sr-only">Expand</span></Th>
+                {/* Account gets a set share; the number columns split what's left evenly. */}
+                <Th className="px-2 sm:w-[36%] sm:px-3 lg:w-[28%]">Account</Th>
+                {showType && <Th className="hidden sm:table-cell">Type</Th>}
+                <Th align="right" className="w-22 px-2 sm:w-auto sm:px-3">Followers</Th>
+                <Th align="right" className="hidden md:table-cell">Following</Th>
+                <Th align="right" className="w-16 px-2 sm:w-auto sm:px-3">Posts</Th>
+                <Th align="right" className="hidden pr-4 md:table-cell">Last checked</Th>
+              </TableHead>
               <tbody>
-                {accounts.map((item) => (
+                {accounts.map((item) => {
+                  const expanded = expandedAccount === item.username;
+                  return (
                   <React.Fragment key={item.username}>
-                    <tr
-                      onClick={() => toggleAccount(item.username)}
-                      className="border-b border-border hover:bg-muted/50 transition-colors cursor-pointer"
-                    >
-                      <td className="py-3 px-2 text-center text-muted-foreground">
-                        {expandedAccount === item.username
-                          ? <ChevronDown className="w-3.5 h-3.5 mx-auto" />
-                          : <ChevronRight className="w-3.5 h-3.5 mx-auto" />
-                        }
-                      </td>
-                      <td className="py-3 px-3 sm:px-4 font-medium text-foreground [overflow-wrap:anywhere]">@{item.username}</td>
-                      <td className="hidden sm:table-cell py-3 px-3 sm:px-4">
-                        {item.is_business ? (
-                          <Badge>Business</Badge>
-                        ) : (
-                          <Badge variant="muted">Creator</Badge>
-                        )}
-                      </td>
-                      <td className="py-3 px-3 sm:px-4 text-card-foreground tabular-nums">{item.followers?.toLocaleString() ?? "0"}</td>
-                      <td className="hidden md:table-cell py-3 px-3 sm:px-4 text-card-foreground tabular-nums">{item.following?.toLocaleString() ?? "0"}</td>
-                      <td className="py-3 px-3 sm:px-4 text-card-foreground tabular-nums">{item.total_posts?.toLocaleString() ?? "0"}</td>
-                      <td className="hidden md:table-cell py-3 px-3 sm:px-4 text-muted-foreground text-xs whitespace-nowrap">
-                        {item.date_checked ? new Date(item.date_checked).toDateString() : "Never"}
-                      </td>
-                    </tr>
-                    {expandedAccount === item.username && (
-                      <tr key={`${item.username}-charts`} className="border-b border-border">
-                        <td colSpan={7} className="p-0">
+                    <Tr interactive onClick={() => toggleAccount(item.username)} className={expanded ? "bg-muted/30" : undefined}>
+                      <Td className="py-2 pl-1.5 pr-0 text-muted-foreground sm:pl-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onPress={() => toggleAccount(item.username)}
+                          aria-expanded={expanded}
+                          aria-label={`${expanded ? "Hide" : "Show"} history for @${item.username}`}
+                          className="size-8"
+                        >
+                          {expanded
+                            ? <ChevronDown className="text-brand" aria-hidden="true" />
+                            : <ChevronRight aria-hidden="true" />}
+                        </Button>
+                      </Td>
+                      {/* max-w-0 lets the account column take the remaining width and truncate inside it. */}
+                      <Td className="max-w-0 px-2 py-2.5 sm:px-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Monogram name={item.full_name || item.username} />
+                          <div className="min-w-0">
+                            <p className="truncate font-medium leading-5 text-foreground" title={item.full_name || `@${item.username}`}>
+                              {item.full_name || `@${item.username}`}
+                            </p>
+                            {item.full_name && <p className="truncate text-xs leading-4 text-muted-foreground">@{item.username}</p>}
+                          </div>
+                        </div>
+                      </Td>
+                      {showType && (
+                        <Td className="hidden sm:table-cell">
+                          {item.is_business ? <Badge>Business</Badge> : <Badge variant="muted">Creator</Badge>}
+                        </Td>
+                      )}
+                      <Td align="right" className="px-2 tabular-nums sm:px-3">{item.followers?.toLocaleString() ?? "0"}</Td>
+                      <Td align="right" className="hidden tabular-nums md:table-cell">{item.following?.toLocaleString() ?? "0"}</Td>
+                      <Td align="right" className="px-2 tabular-nums sm:px-3">{item.total_posts?.toLocaleString() ?? "0"}</Td>
+                      <Td align="right" className="hidden pr-4 text-xs whitespace-nowrap text-muted-foreground md:table-cell">
+                        {item.date_checked ? <RelativeTime value={item.date_checked} className="inline-block first-letter:uppercase" /> : "Never"}
+                      </Td>
+                    </Tr>
+                    {expanded && (
+                      <tr className="border-b border-border last:border-0">
+                        <td colSpan={showType ? 7 : 6} className="p-0">
                           {/* Size to the table rather than letting wide history content stretch it. */}
                           <div className="[contain:inline-size]">
                             <AccountCharts username={item.username} />
@@ -418,14 +423,14 @@ export default function OverviewPage() {
                       </tr>
                     )}
                   </React.Fragment>
-                ))}
+                  );
+                })}
               </tbody>
-            </table>
+            </Table>
           )}
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">Select any row to expand its historical trend charts.</p>
-      </section>
-
+        </TableFrame>
+        <p className="mt-2 text-xs text-muted-foreground">Select any row to expand its historical trend charts.</p>
+      </Section>
     </div>
   );
 }

@@ -11,7 +11,7 @@ function load(file) {
   loaded._compile(compiled, filename);
   return loaded.exports;
 }
-const { safeNext, sameOrigin, requestOrigin } = load('security.ts');
+const { safeNext, sameOrigin, requestOrigin, devLoginEnabled } = load('security.ts');
 const { configInput, jobInput } = load('validation.ts');
 const { createRateLimiter, clientKey } = load('rate-limit.ts');
 const { pollAfterMs, clampPoll } = load('poll-estimate.ts');
@@ -74,4 +74,11 @@ test('Origin checks use the public host when Next uses localhost internally', ()
   const request = new Request('http://localhost:3036/api/config', { headers: { host: 'app.example', 'x-forwarded-proto': 'https', origin: 'https://app.example' } });
   assert.equal(requestOrigin(request), 'https://app.example');
   assert.equal(sameOrigin(request), true);
+});
+
+test('Email sign-in is only enabled by the development server', () => {
+  assert.equal(devLoginEnabled({ NODE_ENV: 'development' }), true);
+  assert.equal(devLoginEnabled({ NODE_ENV: 'production' }), false);
+  assert.equal(devLoginEnabled({ NODE_ENV: 'test' }), false);
+  assert.equal(devLoginEnabled({}), false);
 });

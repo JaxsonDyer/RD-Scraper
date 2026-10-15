@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { LayoutDashboard, FileText, Settings } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 
-const navItems = [
+export const navItems = [
   { href: "/",        label: "Overview", Icon: LayoutDashboard },
   { href: "/posts",   label: "Posts",    Icon: FileText },
   { href: "/scraper", label: "Manager",  Icon: Settings },
@@ -16,20 +16,21 @@ export function SidebarNav() {
   const { isAdmin } = useAuth();
 
   return (
-    <nav className="flex flex-1 flex-col gap-2 px-3 py-4">
+    <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
       {navItems.filter(item => item.href !== "/scraper" || isAdmin).map(({ href, label, Icon }) => {
         const isActive = pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
         return (
           <Link
             key={href}
             href={href}
-            className={`flex min-h-11 items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-sm ${
+            aria-current={isActive ? "page" : undefined}
+            className={`flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring ${
               isActive
-                ? "bg-white text-sidebar font-medium shadow-sm"
+                ? "bg-brand/12 font-medium text-sidebar-foreground"
                 : "text-sidebar-foreground/60 hover:bg-sidebar-foreground/5 hover:text-sidebar-foreground"
             }`}
           >
-            <Icon className="w-4 h-4 shrink-0" />
+            <Icon className={`size-4 shrink-0 ${isActive ? "text-brand" : ""}`} aria-hidden="true" />
             {label}
           </Link>
         );

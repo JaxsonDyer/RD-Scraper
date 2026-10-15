@@ -2,16 +2,21 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Card, Section } from "@/components/ui/card";
+import { DetailList } from "@/components/ui/detail-list";
+import { Notice } from "@/components/ui/notice";
+import { buttonVariants } from "@/components/ui/styles";
+import { Table, TableFrame, TableHead, Td, Th, Tr } from "@/components/ui/table";
 import { getAuth } from "@/lib/auth";
 import { getRunErrorSummary } from "@/lib/run-history";
+import { formatDateTime } from "@/lib/format-date";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Run details | RedDeer Scraper", robots: { index: false, follow: false } };
 
+// Rendered on the server, so pin the schedule's timezone rather than the host's.
 function formatTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString("en-CA", {
-    timeZone: "America/Edmonton", dateStyle: "medium", timeStyle: "medium",
-  }) : "—";
+  return value ? formatDateTime(value, { timeZone: "America/Edmonton", seconds: true }) : "—";
 }
 
 type AccountResult = { username: string; status: string; error?: string };
@@ -29,10 +34,12 @@ export default async function RunDetailsPage({ params }: { params: Promise<{ id:
     .eq("id", id).maybeSingle();
   if (error) return (
     <div className="max-w-3xl space-y-4">
-      <h1 className="text-2xl font-semibold">Could not load run details</h1>
-      <p role="alert" className="text-sm text-muted-foreground">Please try again in a moment.</p>
-      <a href={`/scraper/runs/${id}`} className="inline-flex min-h-11 items-center text-sm underline underline-offset-4">Try again</a>
-      <Link href="/scraper#run-history" className="ml-4 inline-flex min-h-11 items-center text-sm underline underline-offset-4">Back to Run History</Link>
+      <Notice tone="error" action={<a href={`/scraper/runs/${id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>Try again</a>}>
+        Could not load run details. Please try again in a moment.
+      </Notice>
+      <Link href="/scraper#run-history" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2.5" })}>
+        <ArrowLeft aria-hidden="true" /> Back to Run History
+      </Link>
     </div>
   );
   if (!run) notFound();
@@ -47,60 +54,65 @@ export default async function RunDetailsPage({ params }: { params: Promise<{ id:
   const task = run.kind.replaceAll("_", " ");
 
   return (
-    <div className="max-w-3xl space-y-8">
-      <Link href="/scraper#run-history" className="inline-flex min-h-11 items-center gap-2 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        Back to Run History
-      </Link>
-      <header className="space-y-3">
+    <div className="max-w-4xl space-y-10">
+      <div className="space-y-3">
+        <Link href="/scraper#run-history" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2.5" })}>
+          <ArrowLeft aria-hidden="true" /> Back to Run History
+        </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Run details</h1>
-          <Badge className="capitalize" variant={run.status === "error" ? "destructive" : run.status === "success" ? "success" : "outline"}>{run.status === "error" ? "Failed" : run.status}</Badge>
+          <p className="text-base font-semibold text-foreground first-letter:uppercase">{task}</p>
+          <Badge className="capitalize" variant={run.status === "error" ? "destructive" : run.status === "success" ? "success" : "muted"}>
+            {run.status === "error" ? "Failed" : run.status}
+          </Badge>
         </div>
-        <p className="text-sm text-muted-foreground capitalize">{task}</p>
-      </header>
+      </div>
 
       {(run.error || run.status === "error") && (
-        <section className="space-y-3" aria-labelledby="error-heading">
-          <h2 id="error-heading" className="text-lg font-medium">{getRunErrorSummary(run.error)}</h2>
-          <p className="rounded-lg bg-muted/40 p-4 text-sm leading-relaxed text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
-            {run.error || "No error message was recorded for this run."}
-          </p>
-        </section>
+        <Section title="Error" id="error-heading">
+          <Card>
+            <h3 className="text-base font-semibold leading-snug text-foreground">{getRunErrorSummary(run.error)}</h3>
+            <p className="mt-2.5 max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">
+              {run.error || "No error message was recorded for this run."}
+            </p>
+          </Card>
+        </Section>
       )}
 
       {failedAccounts.length > 0 && (
-        <section aria-labelledby="accounts-heading">
-          <h2 id="accounts-heading" className="mb-3 text-base font-medium">Failed accounts</h2>
-          <ul className="divide-y divide-border">
-            {failedAccounts.map((account, index) => (
-              <li key={`${account.username}:${index}`} className="space-y-1 py-3 first:pt-0">
-                <p className="text-sm font-medium [overflow-wrap:anywhere]">@{account.username}</p>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{typeof account.error === "string" ? account.error : "No account-level error message was recorded."}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Section title="Failed accounts" id="accounts-heading">
+          <TableFrame>
+            <Table>
+              <TableHead>
+                <Th className="w-1/3">Account</Th>
+                <Th>Error</Th>
+              </TableHead>
+              <tbody>
+                {failedAccounts.map((account, index) => (
+                  <Tr key={`${account.username}:${index}`}>
+                    <Td className="align-top font-medium [overflow-wrap:anywhere]">@{account.username}</Td>
+                    <Td className="whitespace-pre-wrap leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+                      {typeof account.error === "string" ? account.error : "No account-level error message was recorded."}
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableFrame>
+        </Section>
       )}
 
-      <section aria-labelledby="run-heading" className="space-y-4">
-        <h2 id="run-heading" className="text-base font-medium">Run information</h2>
-        <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
-          {[
-            ["Queued", formatTime(run.created_at)],
-            ["Started", formatTime(run.started_at)],
-            ["Completed", formatTime(run.completed_at)],
-            ["Accounts scraped", String(run.result?.accounts_scraped ?? 0)],
-            ["Run ID", run.id],
-          ].map(([label, value]) => (
-            <div key={label} className="space-y-1">
-              <dt className="text-xs text-muted-foreground">{label}</dt>
-              <dd className="text-sm tabular-nums [overflow-wrap:anywhere]">{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className="text-xs text-muted-foreground">Times shown in America/Edmonton.</p>
-      </section>
+      <Section title="Run information" id="run-heading">
+        <Card>
+          <DetailList items={[
+            { label: "Queued", value: formatTime(run.created_at) },
+            { label: "Started", value: formatTime(run.started_at) },
+            { label: "Completed", value: formatTime(run.completed_at) },
+            { label: "Accounts scraped", value: String(run.result?.accounts_scraped ?? 0) },
+            { label: "Run ID", value: run.id, mono: true },
+          ]} />
+          <p className="mt-5 text-xs text-muted-foreground">Times shown in America/Edmonton.</p>
+        </Card>
+      </Section>
     </div>
   );
 }

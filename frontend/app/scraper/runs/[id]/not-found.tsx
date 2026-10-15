@@ -1,13 +1,16 @@
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { buttonVariants } from "@/components/ui/styles";
 
 export default function RunNotFound() {
   return (
-    <div className="max-w-3xl space-y-4">
-      <h1 className="text-2xl font-semibold">Run not found</h1>
-      <p className="text-sm text-muted-foreground">This run may have been removed. Return to Run History to see the available runs.</p>
-      <Link href="/scraper#run-history" className="inline-flex min-h-11 items-center rounded-sm text-sm underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        Back to Run History
+    <Card className="max-w-xl">
+      <h2 className="text-base font-semibold text-foreground">Run not found</h2>
+      <p className="mt-2 text-sm text-muted-foreground">This run may have been removed. Return to Run History to see the available runs.</p>
+      <Link href="/scraper#run-history" className={buttonVariants({ variant: "secondary", className: "mt-5" })}>
+        <ArrowLeft aria-hidden="true" /> Back to Run History
       </Link>
-    </div>
+    </Card>
   );
 }

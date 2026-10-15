@@ -26,6 +26,9 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
 
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
 
@@ -69,16 +72,6 @@
   --font-mono: "Geist Mono", ui-monospace, monospace;
 }
 
-/* Shared card surface: dark at the top, easing into a lighter sheen. */
-@utility card-surface {
-  background-color: var(--card);
-  background-image: linear-gradient(
-    to bottom,
-    var(--card),
-    color-mix(in oklab, var(--primary) 6%, var(--card))
-  );
-}
-
 @layer base {
   :root {
     /* Core */
@@ -97,6 +90,11 @@
     --accent: oklch(0.9500 0 0);
     --accent-foreground: oklch(0.2050 0 0);
 
+    /* Brand: the logo's crimson. Accent only (current item, focus, trends);
+       errors keep --destructive so the two never read as the same signal. */
+    --brand: oklch(0.4394 0.1627 27.2);
+    --brand-foreground: oklch(0.9850 0 0);
+
     /* Muted */
     --muted: oklch(0.9500 0 0);
     --muted-foreground: oklch(0.5560 0 0);
@@ -108,7 +106,7 @@
     /* Borders / inputs */
     --border: oklch(0.9500 0 0);
     --input: oklch(0.9700 0 0);
-    --ring: oklch(0.7080 0 0);
+    --ring: var(--brand);
 
     /* Charts: blue -> indigo progression */
     --chart-1: oklch(0.8100 0.1000 252);
@@ -125,7 +123,7 @@
     --sidebar-accent: oklch(0.9700 0 0);
     --sidebar-accent-foreground: oklch(0.2050 0 0);
     --sidebar-border: oklch(0.9220 0 0);
-    --sidebar-ring: oklch(0.7080 0 0);
+    --sidebar-ring: var(--brand);
 
     /* Radius */
     --radius: 1rem;
@@ -171,6 +169,10 @@
     --accent: oklch(0.3710 0 0);
     --accent-foreground: oklch(0.9850 0 0);
 
+    /* Brand lifted to stay legible (>=4.5:1) on every dark surface. */
+    --brand: oklch(0.6800 0.1600 27.2);
+    --brand-foreground: oklch(0.2050 0 0);
+
     /* Muted */
     --muted: oklch(0.2690 0 0);
     --muted-foreground: oklch(0.7080 0 0);
@@ -182,7 +184,7 @@
     /* Borders / inputs */
     --border: oklch(0.2690 0 0);
     --input: oklch(0.2690 0 0);
-    --ring: oklch(0.5560 0 0);
+    --ring: var(--brand);
 
     /* Charts: same blue -> indigo progression in both themes */
     --chart-1: oklch(0.8100 0.1000 252);
@@ -199,7 +201,7 @@
     --sidebar-accent: oklch(0.2690 0 0);
     --sidebar-accent-foreground: oklch(0.9850 0 0);
     --sidebar-border: oklch(0.2750 0 0);
-    --sidebar-ring: oklch(0.4390 0 0);
+    --sidebar-ring: var(--brand);
   }
 }
 
@@ -209,6 +211,10 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--brand) 35%, transparent);
+    color: var(--foreground);
   }
 }
 

@@ -16,12 +16,22 @@ function load(file, mocks = {}) {
   loaded.filename = filename;
   loaded.paths = Module._nodeModulePaths(path.dirname(filename));
   const originalRequire = loaded.require.bind(loaded);
-  loaded.require = id => Object.hasOwn(mocks, id) ? mocks[id] : originalRequire(id);
+  loaded.require = id => {
+    if (Object.hasOwn(mocks, id)) return mocks[id];
+    // Real project modules (shared UI, utils) load through the same transpiler.
+    if (id.startsWith('@/')) {
+      const base = path.resolve(import.meta.dirname, '..', id.slice(2));
+      const file = ['.tsx', '.ts'].map(ext => base + ext).find(candidate => fs.existsSync(candidate));
+      if (file) return load(path.relative(path.resolve(import.meta.dirname, '..'), file), mocks);
+    }
+    return originalRequire(id);
+  };
   loaded._compile(compiled, filename);
   return loaded.exports;
 }
 
 const { getRunErrorSummary } = load('lib/run-history.ts');
+const formatDate = load('lib/format-date.ts');
 const id = 'd3bea4c1-e539-49cf-9b21-f4a74ade97a4';
 const run = {
   id, kind: 'daily_scrape', status: 'error',
@@ -43,6 +53,7 @@ function setup({ auth = { user: { id: 'admin' }, isAdmin: true }, data = run, er
   const Page = load('app/scraper/runs/[id]/page.tsx', {
     '@/lib/auth': { getAuth: async () => auth },
     '@/lib/run-history': { getRunErrorSummary },
+    '@/lib/format-date': formatDate,
     '@/lib/supabase/server': { createClient: async () => {
       reads++;
       return { from: table => { assert.equal(table, 'jobs'); return query; } };

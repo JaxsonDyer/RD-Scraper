@@ -2,7 +2,10 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuth } from '@/lib/auth';
-import { safeNext } from '@/lib/security';
+import { devLoginEnabled, safeNext } from '@/lib/security';
+import { Card } from '@/components/ui/card';
+import { Notice } from '@/components/ui/notice';
+import { buttonVariants, inputClass, labelClass } from '@/components/ui/styles';
 
 export default async function LoginPage({ searchParams }: {
   searchParams: Promise<{ next?: string; error?: string }>;
@@ -19,12 +22,16 @@ export default async function LoginPage({ searchParams }: {
         Browse local analytics without an account. Sign in with Google to access your account; approved admins can manage scraping.
       </p>
       {params.error && (
-        <p role="alert" className="mt-6 text-sm text-destructive">We couldn’t complete sign-in. Please try again.</p>
+        <Notice tone="error" className="mt-6">
+          {params.error === 'password'
+            ? 'Email or password is incorrect, or email sign-in is turned off in Supabase.'
+            : 'We couldn’t complete sign-in. Please try again.'}
+        </Notice>
       )}
       {auth.configured ? (
         <form action="/auth/login" method="post" className="mt-8">
           <input type="hidden" name="next" value={next} />
-          <button type="submit" className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-3 rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-neutral-400 hover:bg-neutral-100 hover:shadow-md active:translate-y-0 active:bg-neutral-200 active:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+          <button type="submit" className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-3 rounded-lg border border-neutral-300 bg-white px-4 py-3 text-sm font-medium text-neutral-900 shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-neutral-400 hover:bg-neutral-100 hover:shadow-md active:translate-y-0 active:bg-neutral-200 active:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none motion-reduce:hover:translate-y-0">
             <svg aria-hidden="true" viewBox="0 0 48 48" className="size-5 shrink-0">
               <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
               <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
@@ -35,7 +42,25 @@ export default async function LoginPage({ searchParams }: {
           </button>
         </form>
       ) : <p role="status" className="mt-8 text-sm text-muted-foreground">Sign-in is being set up. Please try again later.</p>}
-      <Link href="/" className="mt-6 inline-block rounded text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Back to overview</Link>
+      {auth.configured && devLoginEnabled() && (
+        <Card as="section" aria-labelledby="dev-login-heading" className="mt-8">
+          <h2 id="dev-login-heading" className="text-base font-semibold text-foreground">Debug sign-in</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Email and password, available only on the development server.</p>
+          <form action="/auth/dev-login" method="post" className="mt-4 space-y-3">
+            <input type="hidden" name="next" value={next} />
+            <label className="flex flex-col gap-1.5">
+              <span className={labelClass}>Email</span>
+              <input name="email" type="email" required autoComplete="username" className={inputClass} />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className={labelClass}>Password</span>
+              <input name="password" type="password" required autoComplete="current-password" className={inputClass} />
+            </label>
+            <button type="submit" className={buttonVariants({ variant: 'primary', className: 'w-full' })}>Sign in with email</button>
+          </form>
+        </Card>
+      )}
+      <Link href="/" className={buttonVariants({ variant: 'ghost', size: 'sm', className: 'mt-6 -ml-2.5' })}>Back to Overview</Link>
     </div>
   );
 }
