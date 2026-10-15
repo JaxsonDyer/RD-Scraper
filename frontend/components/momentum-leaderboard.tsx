@@ -175,8 +175,7 @@ export function MomentumLeaderboard({ board, loading }: { board: MomentumBoard |
   ));
 
   return (
-    <Section title="Momentum" id="momentum-heading"
-      description={`Who's drawing more attention than usual right now. Each account's typical post from the last ${board?.recent_days ?? 14} days is compared with its own typical post before that, so small accounts can rank too.`}>
+    <Section title="Momentum" id="momentum-heading">
       <div className={tableFrameClass} aria-busy={loading}>
         {loading ? (
           <div className="divide-y divide-border" aria-hidden="true">
