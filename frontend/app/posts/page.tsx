@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { formatDate, formatDateTime } from "@/lib/format-date";
 import {
   Heart, MessageCircle, Play, Image as ImageIcon, Video,
@@ -36,7 +36,9 @@ type UserRecord = {
   internal_ig_id: string;
 };
 
-export default function PostsPage() {
+export default function PostsPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+  // Overview's momentum leaderboard links here with ?username= to open one account's posts.
+  const { username } = use(searchParams);
   const { isAdmin } = useAuth();
   const [pageIndex, setPageIndex] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -44,7 +46,7 @@ export default function PostsPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterUser, setFilterUser] = useState<string>("");
+  const [filterUser, setFilterUser] = useState<string>(typeof username === "string" ? username : "");
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [rescrapeSyncing, setRescrapeSyncing] = useState<Record<string, "syncing" | "done" | "failed" | null>>({});
   const detailPanel = useRef<HTMLElement>(null);

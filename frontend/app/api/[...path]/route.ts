@@ -6,6 +6,7 @@ import { InputError, configInput, jobInput } from '@/lib/validation';
 import models from '@/lib/llm-models.json';
 import { clientKey, createRateLimiter } from '@/lib/rate-limit';
 import { pollAfterMs } from '@/lib/poll-estimate';
+import { MOMENTUM_SETTINGS, interactions, isScorable, rankMomentum, type MomentumPost } from '@/lib/momentum';
 
 export const dynamic = 'force-dynamic';
 // A dashboard tab polls about 6 reads a minute; leave room for paging and for
@@ -22,10 +23,58 @@ async function pollAfter(client: Awaited<ReturnType<typeof createClient>>, nextR
   return pollAfterMs(data ?? [], Date.now(), nextRunAt);
 }
 
+// PostgREST returns at most 1,000 rows per request; page through, with a hard stop.
+const MOMENTUM_PAGE = 1000;
+const MOMENTUM_MAX_PAGES = 10;
+const RECENT_POSTS_SHOWN = 5;
+
+async function momentumBoard(client: Awaited<ReturnType<typeof createClient>>) {
+  const now = Date.now();
+  const since = new Date(now - MOMENTUM_SETTINGS.baselineDays * 86_400_000).toISOString();
+  const { data: accounts, error } = await client.from('account_overview').select('username,full_name,total_posts');
+  check(error);
+  const posts: MomentumPost[] = [];
+  for (let page = 0; page < MOMENTUM_MAX_PAGES; page++) {
+    const { data, error: postsError } = await client.from('post_overview')
+      .select('shortcode,username,likes,comments,posted_timestamp,scraped_timestamp')
+      .gte('posted_timestamp', since).order('posted_timestamp', { ascending: false }).order('shortcode')
+      .range(page * MOMENTUM_PAGE, (page + 1) * MOMENTUM_PAGE - 1);
+    check(postsError);
+    posts.push(...(data ?? []));
+    if ((data?.length ?? 0) < MOMENTUM_PAGE) break;
+  }
+  const board = rankMomentum(accounts ?? [], posts, now);
+  const recentCutoff = now - MOMENTUM_SETTINGS.recentDays * 86_400_000;
+  // Newest first already, from the query order.
+  const recentByAccount = new Map<string, MomentumPost[]>();
+  for (const post of posts) {
+    const list = recentByAccount.get(post.username) ?? [];
+    if (Date.parse(post.posted_timestamp) >= recentCutoff && list.length < RECENT_POSTS_SHOWN) recentByAccount.set(post.username, [...list, post]);
+  }
+  const shown = [...recentByAccount.values()].flat().map(post => post.shortcode);
+  const { data: captions, error: captionError } = shown.length
+    ? await client.from('posts').select('shortcode,caption').in('shortcode', shown)
+    : { data: [], error: null };
+  check(captionError);
+  const captionOf = new Map((captions ?? []).map(row => [row.shortcode, (row.caption ?? '').slice(0, 160)]));
+  return {
+    generated_at: new Date(now).toISOString(),
+    recent_days: MOMENTUM_SETTINGS.recentDays,
+    baseline_days: MOMENTUM_SETTINGS.baselineDays,
+    accounts: board.map(({ account, momentum, rank }) => ({
+      username: account.username, full_name: account.full_name, rank, momentum,
+      recent_posts: (recentByAccount.get(account.username) ?? []).map(post => ({
+        shortcode: post.shortcode, posted_timestamp: post.posted_timestamp, likes: post.likes ?? 0, comments: post.comments ?? 0,
+        interactions: interactions(post), scorable: isScorable(post), caption: captionOf.get(post.shortcode) ?? '',
+      })),
+    })),
+  };
+}
+
 async function handle(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
   const route = path.join('/');
-  const reads = ['accounts', 'stats', 'posts', 'ai-insights'];
+  const reads = ['accounts', 'stats', 'posts', 'ai-insights', 'momentum'];
   const publicRead = request.method === 'GET' && (reads.includes(route) || (path[0] === 'account-history' && path.length === 2));
   if (request.method === 'POST' && !sameOrigin(request)) return json({ error: 'Request origin is not allowed.' }, 403);
   if (publicRead && !allowPublicRead(clientKey(request))) return json({ error: 'Too many requests. Please wait a minute.' }, 429);
@@ -43,6 +92,7 @@ async function handle(request: Request, { params }: { params: Promise<{ path: st
         const { data, error } = await client.from('account_overview').select('*').order('followers', { ascending: false, nullsFirst: false });
         check(error); return json({ accounts: data });
       }
+      if (route === 'momentum') return json(await momentumBoard(client));
       if (route === 'stats') {
         const { data, error } = await client.rpc('dashboard_stats'); check(error); return json(data);
       }

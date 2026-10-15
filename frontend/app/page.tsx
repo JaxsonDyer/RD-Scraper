@@ -17,6 +17,8 @@ import { TextSkeleton } from "@/components/ui/skeleton";
 import { LoadingState } from "@/components/ui/spinner";
 import { Stat, StatSkeleton } from "@/components/ui/stat";
 import { Table, TableFrame, TableHead, Td, Th, Tr } from "@/components/ui/table";
+import { Monogram } from "@/components/monogram";
+import { MomentumLeaderboard, type MomentumBoard } from "@/components/momentum-leaderboard";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -69,17 +71,6 @@ type AiInsights = {
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────
-
-function Monogram({ name }: { name: string }) {
-  const words = name.replace(/^@/, "").split(/[\s._]+/).filter(Boolean);
-  // First and last word: "Red Deer VIBIN" and "Red Deer Polytechnic" share a prefix but not an ending.
-  const initials = (words.length > 1 ? words[0][0] + words[words.length - 1][0] : name.replace(/^@/, "").slice(0, 2)).toUpperCase();
-  return (
-    <span aria-hidden="true" className="hidden size-8 sm:flex shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[11px] font-semibold tracking-wide text-foreground/80">
-      {initials}
-    </span>
-  );
-}
 
 const CHART_THEME = {
   grid: "var(--border)",
@@ -222,6 +213,15 @@ export default function OverviewPage() {
   const [aiLastRefreshed, setAiLastRefreshed] = useState<string | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [momentum, setMomentum] = useState<MomentumBoard | null>(null);
+  const [momentumLoading, setMomentumLoading] = useState(true);
+  const [momentumError, setMomentumError] = useState<string | null>(null);
+
+  const loadMomentum = useCallback(() => fetch("/api/momentum")
+      .then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || "Could not load momentum."); return data; })
+      .then(data => { setMomentum(data); setMomentumError(null); })
+      .catch(err => setMomentumError(err instanceof Error ? err.message : "Could not load momentum."))
+      .finally(() => setMomentumLoading(false)), []);
 
   const loadData = useCallback(() => Promise.all([
       fetch("/api/accounts").then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || "Could not load accounts."); return data; }),
@@ -248,14 +248,15 @@ export default function OverviewPage() {
 
   useEffect(() => {
     void loadData();
+    void loadMomentum();
     void loadAiInsights();
     const aiPollInterval = setInterval(loadAiInsights, 10000);
     return () => clearInterval(aiPollInterval);
-  }, [loadData, loadAiInsights]);
+  }, [loadData, loadMomentum, loadAiInsights]);
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadData(), loadAiInsights()]);
+    await Promise.all([loadData(), loadMomentum(), loadAiInsights()]);
     setRefreshing(false);
   };
 
@@ -289,7 +290,13 @@ export default function OverviewPage() {
         </Notice>
       )}
 
-      <section aria-label="Totals" aria-busy={loading}>
+      {momentumError ? (
+        <Notice tone="error" action={<Button size="sm" variant="ghost" onPress={() => void loadMomentum()}>Retry</Button>}>
+          Could not load momentum: {momentumError}
+        </Notice>
+      ) : <MomentumLeaderboard board={momentum} loading={momentumLoading} />}
+
+      <section aria-label="All-time totals" aria-busy={loading}>
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
           {loading ? [0, 1, 2, 3].map(i => <StatSkeleton key={i} />) : (
             <>
