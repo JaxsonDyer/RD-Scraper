@@ -28,6 +28,7 @@ type Config = {
 type LlmModel = {
   id: string;
   name: string;
+  free?: boolean;
 };
 
 type AiStatus = {
@@ -59,7 +60,7 @@ export default function ScraperPage() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [llmLookbackDays, setLlmLookbackDays] = useState(7);
   const [llmMaxPosts, setLlmMaxPosts] = useState(10);
-  const [llmModelId, setLlmModelId] = useState("google/gemini-2.5-flash");
+  const [llmModelId, setLlmModelId] = useState("google/gemini-3.5-flash-lite");
   const [generatingInsights, setGeneratingInsights] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
 
@@ -113,7 +114,7 @@ export default function ScraperPage() {
         if (d.llm_config) {
           setLlmLookbackDays(d.llm_config.lookback_days || 7);
           setLlmMaxPosts(d.llm_config.max_posts || 10);
-          setLlmModelId(d.llm_config.model || "google/gemini-2.5-flash");
+          setLlmModelId(d.llm_config.model || "google/gemini-3.5-flash-lite");
         }
 
       })
@@ -542,8 +543,15 @@ export default function ScraperPage() {
                   {!llmModels.some(model => model.id === llmModelId) && (
                     <option value={llmModelId}>Saved model: {llmModelId}</option>
                   )}
-                  {llmModels.map(model => (
-                    <option key={model.id} value={model.id}>{model.name}</option>
+                  {[
+                    { label: "Free", models: llmModels.filter(model => model.free) },
+                    { label: "Paid (uses OpenRouter credits)", models: llmModels.filter(model => !model.free) },
+                  ].filter(group => group.models.length > 0).map(group => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.models.map(model => (
+                        <option key={model.id} value={model.id}>{model.name}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
                 {modelsError && (

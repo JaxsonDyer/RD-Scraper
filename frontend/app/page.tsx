@@ -53,6 +53,8 @@ type AiInsights = {
   communityPulse: string;
   viralAnomaly: string;
   sectorMomentum: string[];
+  // Missing from summaries generated before underperformers were added.
+  underperformers?: { shortcode: string; username: string; reason: string }[];
   _meta?: {
     last_refreshed: string | null;
   };
@@ -294,7 +296,7 @@ export default function OverviewPage() {
             </span>
           </div>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <AICard badge="Community Pulse" title="Trending Themes This Week">
             {aiLoading ? (
                <div className="flex justify-center py-4"><RefreshCw className="w-5 h-5 text-muted-foreground animate-spin" /></div>
@@ -327,6 +329,30 @@ export default function OverviewPage() {
                </ul>
             ) : (
                <p className="text-sm text-destructive leading-relaxed">Failed to generate intelligence data.</p>
+            )}
+          </AICard>
+          <AICard badge="Underperformers" title="Posts That Fell Short">
+            {aiLoading ? (
+               <div className="flex justify-center py-4"><RefreshCw className="w-5 h-5 text-muted-foreground animate-spin" /></div>
+            ) : !aiInsights ? (
+               <p className="text-sm text-destructive leading-relaxed">Failed to generate intelligence data.</p>
+            ) : !aiInsights.underperformers ? (
+               <p className="text-sm text-muted-foreground leading-relaxed">Generate insights again to see this section.</p>
+            ) : aiInsights.underperformers.length === 0 ? (
+               <p className="text-sm text-muted-foreground leading-relaxed">No posts fell well below their account&apos;s usual engagement.</p>
+            ) : (
+               <ul className="space-y-3">
+                 {aiInsights.underperformers.map(item => (
+                   <li key={item.shortcode} className="flex items-start gap-2 text-sm">
+                     <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
+                     <span className="leading-relaxed text-muted-foreground">
+                       <a href={`https://www.instagram.com/p/${encodeURIComponent(item.shortcode)}/`} target="_blank" rel="noopener noreferrer"
+                         className="font-medium text-foreground underline underline-offset-2">@{item.username}</a>{" "}
+                       {item.reason}
+                     </span>
+                   </li>
+                 ))}
+               </ul>
             )}
           </AICard>
         </div>

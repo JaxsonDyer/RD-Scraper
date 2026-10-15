@@ -13,6 +13,6 @@
   "llm_config": {
     "lookback_days": 7,
     "max_posts": 10,
-    "model": "nvidia/nemotron-3-ultra-550b-a55b:free"
+    "model": "google/gemini-3.5-flash-lite"
   }
 }

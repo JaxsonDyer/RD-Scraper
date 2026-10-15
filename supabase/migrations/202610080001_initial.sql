@@ -64,7 +64,7 @@ create table public.app_config (
   data jsonb not null,
   updated_at timestamptz not null default now()
 );
-insert into public.app_config(id, data) values (1, '{"target_accounts":["madhatters.rd","reddeer","reddeervibin","reddeervtv","reddeerpolytechnic"],"daily_run_time":"00:00","timezone":"America/Edmonton","scheduler_enabled":false,"post_lookback_days":30,"incremental_post_limit":250,"llm_config":{"lookback_days":7,"max_posts":10,"model":"google/gemini-2.5-flash"}}');
+insert into public.app_config(id, data) values (1, '{"target_accounts":["madhatters.rd","reddeer","reddeervibin","reddeervtv","reddeerpolytechnic"],"daily_run_time":"00:00","timezone":"America/Edmonton","scheduler_enabled":false,"post_lookback_days":30,"incremental_post_limit":250,"llm_config":{"lookback_days":7,"max_posts":10,"model":"google/gemini-3.5-flash-lite"}}');
 create table public.jobs (
   id uuid primary key default gen_random_uuid(),
   kind text not null check (kind in ('daily_scrape','deep_scrape','rescrape','insights','analyze')),

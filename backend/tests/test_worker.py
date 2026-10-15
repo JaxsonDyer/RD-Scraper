@@ -7,7 +7,28 @@ from unittest.mock import Mock, patch
 import httpx
 from openai import APIStatusError
 import main as scraper
-from insights import validate_insights, generate_insights, provider_error, summarize_accounts
+from datetime import datetime, timedelta, timezone
+from insights import (validate_insights, generate_insights, provider_error, summarize_accounts, parse_json_reply,
+                      score_posts, select_posts, engagement)
+
+NOW = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
+
+
+def post(code, username, likes, comments=0, days_old=3, **extra):
+    return {'shortcode': code, 'username': username, 'likes': likes, 'comments': comments, 'views': 0,
+            'is_video': False, 'posted_timestamp': (NOW - timedelta(days=days_old)).isoformat(),
+            'scraped_timestamp': NOW.isoformat(), **extra}
+
+
+def insight_store(model='test/model'):
+    """A store holding one recent post, enough for generate_insights to reach the model call."""
+    store = Mock()
+    store.config.return_value = {'target_accounts': ['a'],
+                                 'llm_config': {'lookback_days': 7, 'max_posts': 10, 'model': model}}
+    rows = {'post_overview': [post('p1', 'a', 10, days_old=2)], 'posts': [{'shortcode': 'p1', 'caption': 'test'}],
+            'post_metrics': []}
+    store.select.side_effect = lambda table, **params: rows[table]
+    return store
 from worker import execute_job, run_claimed, configure_logging
 
 class WorkerTests(unittest.TestCase):
@@ -113,6 +134,13 @@ class WorkerTests(unittest.TestCase):
     def test_ai_schema_strips_unexpected_fields(self):
         result = validate_insights({'communityPulse': 'a', 'viralAnomaly': 'b', 'sectorMomentum': ['c'], 'extra': 'discard'})
         self.assertNotIn('extra', result)
+        self.assertEqual(result['underperformers'], [])
+
+    def test_ai_schema_keeps_only_supplied_underperformers(self):
+        result = validate_insights({'communityPulse': 'a', 'viralAnomaly': 'b', 'sectorMomentum': ['c'],
+                                    'underperformers': [{'shortcode': 'p1', 'reason': 'Off-topic.'},
+                                                        {'shortcode': 'made-up', 'reason': 'Invented.'}]}, {'p1': 'a'})
+        self.assertEqual(result['underperformers'], [{'shortcode': 'p1', 'username': 'a', 'reason': 'Off-topic.'}])
 
     @patch('worker.scraper.run_daily_scrape')
     def test_partial_scrape_is_not_success(self, scrape):
@@ -132,12 +160,38 @@ class WorkerTests(unittest.TestCase):
         self.assertIn('1 account', error)
         store.rpc.assert_not_called()
 
-    def test_account_baselines_average_every_post_in_window(self):
-        rows = summarize_accounts([{'username': 'a', 'likes': 10, 'comments': 1, 'views': None},
-                                   {'username': 'a', 'likes': 20, 'comments': 3, 'views': 0},
-                                   {'username': 'b', 'likes': 5}])
-        self.assertEqual(rows, [{'username': 'a', 'posts': 2, 'avg_likes': 15, 'avg_comments': 2, 'avg_views': 0},
-                                {'username': 'b', 'posts': 1, 'avg_likes': 5, 'avg_comments': 0, 'avg_views': 0}])
+    def test_posts_are_scored_against_their_own_account(self):
+        scored, by_account = score_posts([post('a1', 'a', 100), post('a2', 'a', 200), post('a3', 'a', 300),
+                                          post('b1', 'b', 10, comments=10), post('new', 'a', 5000, days_old=0.5)], NOW)
+        ratios = {p['shortcode']: p['x_typical'] for p in scored}
+        self.assertEqual(ratios, {'a1': 0.5, 'a2': 1.0, 'a3': 1.5, 'b1': 1.0})
+        self.assertEqual(by_account['b'], [engagement({'likes': 10, 'comments': 10})])
+
+    def test_posts_scraped_too_soon_after_posting_are_not_scored(self):
+        stale = post('stale', 'a', 3, days_old=5, scraped_timestamp=(NOW - timedelta(days=5, hours=-4)).isoformat())
+        scored, _ = score_posts([stale, post('a1', 'a', 100)], NOW)
+        self.assertEqual([p['shortcode'] for p in scored], ['a1'])
+
+    def test_selection_represents_every_account_and_finds_underperformers(self):
+        posts = [post(f'big{i}', 'big', likes) for i, likes in enumerate([5000, 5200, 5400, 1000])]
+        posts += [post(f'small{i}', 'small', likes) for i, likes in enumerate([40, 50, 200])]
+        scored, by_account = score_posts(posts, NOW)
+        standouts, weak = select_posts(scored, by_account, max_posts=2)
+        # small2 is 4x its account's median; big's raw likes don't let it take both slots.
+        self.assertEqual([p['shortcode'] for p in standouts], ['small2', 'big2'])
+        self.assertEqual([p['shortcode'] for p in weak], ['big3'])
+
+    def test_underperformers_need_an_account_baseline(self):
+        scored, by_account = score_posts([post('a1', 'a', 10), post('a2', 'a', 1000)], NOW)
+        self.assertEqual(select_posts(scored, by_account, max_posts=1)[1], [])
+
+    def test_account_summary_compares_periods_and_includes_quiet_accounts(self):
+        current = [post('a1', 'a', 10), post('a2', 'a', 30)]
+        scored, by_account = score_posts(current, NOW)
+        rows = summarize_accounts(['a', 'quiet'], current, [post('old', 'a', 50, days_old=10)], by_account)
+        self.assertEqual(rows, [
+            {'username': 'a', 'posts': 2, 'median_engagement': 20, 'previous_period': {'posts': 1, 'median_engagement': 50}},
+            {'username': 'quiet', 'posts': 0, 'median_engagement': None, 'previous_period': {'posts': 0, 'median_engagement': None}}])
 
     def test_provider_error_preserves_cause_but_redacts_credentials(self):
         response = httpx.Response(401, request=httpx.Request('POST', 'https://openrouter.ai/api/v1/chat/completions'))
@@ -155,20 +209,32 @@ class WorkerTests(unittest.TestCase):
         response = httpx.Response(404, request=httpx.Request('POST', 'https://openrouter.ai/api/v1/chat/completions'))
         client.return_value.chat.completions.create.side_effect = APIStatusError(
             'request failed', response=response, body={'message': 'No endpoints support these parameters.'})
-        store = Mock()
-        store.config.return_value = {'llm_config': {'lookback_days': 7, 'max_posts': 10, 'model': 'test/model'}}
-        store.select.return_value = [{'caption': 'test'}]
+        store = insight_store()
         with patch.dict(os.environ, {'OPENROUTER_API_KEY': 'test-key'}):
             with self.assertRaisesRegex(scraper.ScrapeError, 'OpenRouter HTTP 404: No endpoints support these parameters'):
+                generate_insights(store)
+        store.upsert.assert_not_called()
+
+    def test_json_reply_tolerates_fences_and_prose(self):
+        self.assertEqual(parse_json_reply('{"a": 1}'), {'a': 1})
+        self.assertEqual(parse_json_reply('```json\n{"a": 1}\n```'), {'a': 1})
+        self.assertEqual(parse_json_reply('Here is the summary:\n{"a": {"b": 2}}\nThanks'), {'a': {'b': 2}})
+        with self.assertRaises(ValueError):
+            parse_json_reply('no json here')
+
+    @patch('insights.OpenAI')
+    def test_malformed_ai_output_is_actionable(self, client):
+        client.return_value.chat.completions.create.return_value.choices = [Mock(message=Mock(content='Sorry, I cannot help.'))]
+        store = insight_store()
+        with patch.dict(os.environ, {'OPENROUTER_API_KEY': 'test-key'}):
+            with self.assertRaisesRegex(scraper.ScrapeError, 'did not return the expected JSON'):
                 generate_insights(store)
         store.upsert.assert_not_called()
 
     @patch('insights.OpenAI')
     def test_empty_ai_output_is_actionable(self, client):
         client.return_value.chat.completions.create.return_value.choices = []
-        store = Mock()
-        store.config.return_value = {'llm_config': {'lookback_days': 7, 'max_posts': 10, 'model': 'test/model'}}
-        store.select.return_value = [{'caption': 'test'}]
+        store = insight_store()
         with patch.dict(os.environ, {'OPENROUTER_API_KEY': 'test-key'}):
             with self.assertRaisesRegex(scraper.ScrapeError, 'returned no summary text'):
                 generate_insights(store)
