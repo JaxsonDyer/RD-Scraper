@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { AppShell } from "@/components/app-shell";
 import { AuthProvider } from "@/components/auth-provider";
 import { ToastProvider } from "@/components/toast";
@@ -36,6 +37,7 @@ export default async function RootLayout({
     >
       <body className="h-full overflow-hidden text-foreground bg-sidebar">
         <AuthProvider value={auth}><ToastProvider><AppShell>{children}</AppShell></ToastProvider></AuthProvider>
+        <Analytics />
       </body>
     </html>
   );

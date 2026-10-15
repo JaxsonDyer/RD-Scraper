@@ -1,11 +1,12 @@
 import type { NextConfig } from 'next';
 const dev = process.env.NODE_ENV === 'development';
-// Next's hydration needs inline scripts. The browser only talks to this origin;
+// Next's hydration needs inline scripts. The browser only talks to this origin
+// (Vercel Analytics is served from /_vercel/insights; only its dev debug script is external);
 // avatars come from Google over HTTPS. form-action is omitted because login
 // redirects through Supabase to Google and browsers check redirects against it.
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
+  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval' https://va.vercel-scripts.com" : ''}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
