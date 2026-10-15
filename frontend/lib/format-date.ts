@@ -38,6 +38,12 @@ export function formatTime(value: DateInput, options?: Options) {
   return format(value, { timeStyle: "short" }, options);
 }
 
+/** "12:00 a.m." for a stored "HH:MM" schedule time, which has no date or timezone of its own. */
+export function formatClockTime(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return format(new Date(Date.UTC(2000, 0, 1, hours, minutes)), { timeStyle: "short" }, { timeZone: "UTC" });
+}
+
 /** "Oct 14": compact chart axes. */
 export function formatShortDate(value: DateInput, options?: Options) {
   return format(value, { month: "short", day: "numeric" }, options);
@@ -46,6 +52,28 @@ export function formatShortDate(value: DateInput, options?: Options) {
 /** "Wed, Oct 14, 2026" */
 export function formatWeekdayDate(value: DateInput, options?: Options) {
   return format(value, { weekday: "short", month: "short", day: "numeric", year: "numeric" }, options);
+}
+
+/** "2026-10-14": the calendar day a moment falls on, for grouping rows by day. */
+export function formatDayKey(value: DateInput, options?: Options) {
+  return format(value, { year: "numeric", month: "2-digit", day: "2-digit" }, options);
+}
+
+/** "Today", "Yesterday", or "Wed, Oct 14, 2026": a heading for one day's rows. */
+export function formatDayHeading(value: DateInput, now: number = Date.now(), options?: Options) {
+  const day = formatDayKey(value, options);
+  if (day === formatDayKey(new Date(now), options)) return "Today";
+  if (day === formatDayKey(new Date(now - DAY), options)) return "Yesterday";
+  return formatWeekdayDate(value, options);
+}
+
+/** "in 3 hr 12 min", "in 8 min", "in under a minute": time until a future moment. */
+export function formatCountdown(ms: number) {
+  if (ms < MINUTE) return "in under a minute";
+  const hours = Math.floor(ms / HOUR);
+  const minutes = Math.floor((ms % HOUR) / MINUTE);
+  if (!hours) return `in ${minutes} min`;
+  return minutes ? `in ${hours} hr ${minutes} min` : `in ${hours} hr`;
 }
 
 /**

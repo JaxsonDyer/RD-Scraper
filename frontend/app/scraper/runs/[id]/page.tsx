@@ -8,7 +8,7 @@ import { Notice } from "@/components/ui/notice";
 import { buttonVariants } from "@/components/ui/styles";
 import { Table, TableFrame, TableHead, Td, Th, Tr } from "@/components/ui/table";
 import { getAuth } from "@/lib/auth";
-import { getRunErrorSummary } from "@/lib/run-history";
+import { getRunErrorSummary, getRunStatus, getRunTask } from "@/lib/run-history";
 import { formatDateTime } from "@/lib/format-date";
 import { createClient } from "@/lib/supabase/server";
 
@@ -37,8 +37,8 @@ export default async function RunDetailsPage({ params }: { params: Promise<{ id:
       <Notice tone="error" action={<a href={`/scraper/runs/${id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>Try again</a>}>
         Could not load run details. Please try again in a moment.
       </Notice>
-      <Link href="/scraper#run-history" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2.5" })}>
-        <ArrowLeft aria-hidden="true" /> Back to Run History
+      <Link href="/scraper#activity" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2.5" })}>
+        <ArrowLeft aria-hidden="true" /> Back to Activity
       </Link>
     </div>
   );
@@ -51,19 +51,17 @@ export default async function RunDetailsPage({ params }: { params: Promise<{ id:
       "status" in account && typeof account.status === "string")
     : [];
   const failedAccounts = accountResults.filter(account => account.status === "error");
-  const task = run.kind.replaceAll("_", " ");
+  const status = getRunStatus(run);
 
   return (
     <div className="max-w-4xl space-y-10">
       <div className="space-y-3">
-        <Link href="/scraper#run-history" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2.5" })}>
-          <ArrowLeft aria-hidden="true" /> Back to Run History
+        <Link href="/scraper#activity" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2.5" })}>
+          <ArrowLeft aria-hidden="true" /> Back to Activity
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <p className="text-base font-semibold text-foreground first-letter:uppercase">{task}</p>
-          <Badge className="capitalize" variant={run.status === "error" ? "destructive" : run.status === "success" ? "success" : "muted"}>
-            {run.status === "error" ? "Failed" : run.status}
-          </Badge>
+          <p className="text-base font-semibold text-foreground">{getRunTask(run.kind)}</p>
+          <Badge variant={status.variant}>{status.label}</Badge>
         </div>
       </div>
 

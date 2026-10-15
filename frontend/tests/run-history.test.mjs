@@ -30,7 +30,8 @@ function load(file, mocks = {}) {
   return loaded.exports;
 }
 
-const { getRunErrorSummary } = load('lib/run-history.ts');
+const runHistory = load('lib/run-history.ts');
+const { getRunErrorSummary, getRunStatus, getRunDetail, formatDuration } = runHistory;
 const formatDate = load('lib/format-date.ts');
 const id = 'd3bea4c1-e539-49cf-9b21-f4a74ade97a4';
 const run = {
@@ -52,7 +53,7 @@ function setup({ auth = { user: { id: 'admin' }, isAdmin: true }, data = run, er
   };
   const Page = load('app/scraper/runs/[id]/page.tsx', {
     '@/lib/auth': { getAuth: async () => auth },
-    '@/lib/run-history': { getRunErrorSummary },
+    '@/lib/run-history': runHistory,
     '@/lib/format-date': formatDate,
     '@/lib/supabase/server': { createClient: async () => {
       reads++;
@@ -74,6 +75,24 @@ test('History summaries preserve the cause while shortening provider and account
   assert.equal(getRunErrorSummary('2 account(s) could not be scraped. @a: Missing; @b: Missing.'), '2 accounts couldn’t be scraped');
   assert.equal(getRunErrorSummary(null), 'Run failed');
   assert.ok(getRunErrorSummary('A'.repeat(200)).length <= 80);
+});
+
+test('Partial scrapes are warnings; only runs that collected nothing are failures', () => {
+  assert.deepEqual(getRunStatus(run), { label: 'Warning', variant: 'warning' });
+  assert.deepEqual(getRunStatus({ ...run, result: { accounts_scraped: 0 } }), { label: 'Failed', variant: 'destructive' });
+  assert.deepEqual(getRunStatus({ kind: 'insights', status: 'error', error: 'OpenRouter HTTP 401', result: null }), { label: 'Failed', variant: 'destructive' });
+  assert.equal(getRunStatus({ kind: 'insights', status: 'success', error: null }).label, 'Success');
+  assert.equal(getRunStatus({ kind: 'daily_scrape', status: 'running', error: null }).label, 'Running');
+});
+
+test('Run details show account counts only for tasks that cover several accounts', () => {
+  const partial = { kind: 'daily_scrape', status: 'error', error: 'x', result: { accounts_scraped: 1, accounts: [{ username: 'a', status: 'success' }, { username: 'b', status: 'error' }] } };
+  assert.equal(getRunDetail(partial), '1 of 2 accounts');
+  assert.equal(getRunDetail({ kind: 'deep_scrape', status: 'success', error: null, result: { username: 'reddeer', posts_collected: 1200 } }), '@reddeer · 1,200 posts');
+  assert.equal(getRunDetail({ kind: 'insights', status: 'success', error: null, result: { model: 'x' } }), null);
+  assert.equal(formatDuration(45_000), '45s');
+  assert.equal(formatDuration(99_000), '1m 39s');
+  assert.equal(formatDuration(3_900_000), '1h 5m');
 });
 
 test('Run details require an administrator before reading any job data', async () => {
@@ -99,7 +118,8 @@ test('The detail page retains the complete error and failed account context', as
   assert.ok(html.includes('Failed accounts'));
   assert.ok(html.includes(run.id));
   assert.ok(html.includes('America/Edmonton'));
-  assert.ok(html.includes('/scraper#run-history'));
+  assert.ok(html.includes('/scraper#activity'));
+  assert.ok(html.includes('Warning'));
 });
 
 test('Unavailable data offers a reload without exposing database errors', async () => {

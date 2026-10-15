@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Input, Label, TextField } from "react-aria-components";
+import { Input, Label, Text, TextField } from "react-aria-components";
 import { cn } from "@/lib/utils";
 import { inputClass, labelClass } from "@/components/ui/styles";
 
@@ -11,6 +11,8 @@ type NumberFieldProps = {
   min: number;
   max?: number;
   label?: string;
+  /** Helper text under the input, read out with it. */
+  description?: string;
   "aria-label"?: string;
   isDisabled?: boolean;
   className?: string;
@@ -23,7 +25,7 @@ type NumberFieldProps = {
  * separately from the saved number: only valid numbers are passed up, clamped to range,
  * and leaving the field restores the last valid value instead of forcing one mid-edit.
  */
-export function NumberField({ value, onChange, min, max = Number.MAX_SAFE_INTEGER, label, suffix,
+export function NumberField({ value, onChange, min, max = Number.MAX_SAFE_INTEGER, label, description, suffix,
   className, inputClassName, ...props }: NumberFieldProps) {
   const [draft, setDraft] = useState(String(value));
   const [committed, setCommitted] = useState(value);
@@ -49,6 +51,7 @@ export function NumberField({ value, onChange, min, max = Number.MAX_SAFE_INTEGE
       <Input type="number" inputMode="numeric" min={min} max={max === Number.MAX_SAFE_INTEGER ? undefined : max}
         className={inputClassName ?? inputClass} />
       {suffix}
+      {description && <Text slot="description" className="text-xs text-muted-foreground">{description}</Text>}
     </TextField>
   );
 }

@@ -40,3 +40,21 @@ test('Instants format in the requested timezone', () => {
   assert.equal(formatDateTime('2026-10-15T03:39:12Z', { timeZone: 'America/Edmonton', seconds: true }), 'Oct 14, 2026, 9:39:12 p.m.');
   assert.equal(formatDate('not a date'), '');
 });
+
+test('Schedule times, day headings and countdowns use the app-wide formats', () => {
+  const { formatClockTime, formatDayHeading, formatDayKey, formatCountdown, formatTime } = load('format-date.ts');
+  assert.equal(formatClockTime('00:00'), '12:00 a.m.');
+  assert.equal(formatClockTime('13:30'), '1:30 p.m.');
+  // A run's time and the schedule time read the same way.
+  assert.equal(formatTime('2026-10-15T19:30:00Z', { timeZone: 'America/Edmonton' }), formatClockTime('13:30'));
+  const timeZone = 'America/Edmonton';
+  // 03:39 UTC on Oct 15 is still the evening of Oct 14 in Edmonton.
+  assert.equal(formatDayKey(new Date(now), { timeZone }), '2026-10-14');
+  assert.equal(formatDayHeading(ago(60_000), now, { timeZone }), 'Today');
+  assert.equal(formatDayHeading(ago(86_400_000), now, { timeZone }), 'Yesterday');
+  assert.equal(formatDayHeading(ago(3 * 86_400_000), now, { timeZone }), 'Sun, Oct 11, 2026');
+  assert.equal(formatCountdown(30_000), 'in under a minute');
+  assert.equal(formatCountdown(8 * 60_000), 'in 8 min');
+  assert.equal(formatCountdown(3 * 3_600_000 + 12 * 60_000), 'in 3 hr 12 min');
+  assert.equal(formatCountdown(2 * 3_600_000), 'in 2 hr');
+});

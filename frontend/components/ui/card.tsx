@@ -39,9 +39,10 @@ export function CardSection({ title, children, className }: { title: string; chi
 }
 
 /** A page section with the uppercase heading. The only place uppercase is used. */
-export function Section({ title, id, action, children, className }: {
+export function Section({ title, id, description, action, children, className }: {
   title: string;
   id: string;
+  description?: React.ReactNode;
   action?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
@@ -52,6 +53,7 @@ export function Section({ title, id, action, children, className }: {
         <h2 id={id} className={sectionHeadingClass}>{title}</h2>
         {action}
       </div>
+      {description && <p className="-mt-1 mb-3 max-w-prose text-sm text-muted-foreground">{description}</p>}
       {children}
     </section>
   );
