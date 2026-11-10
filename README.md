@@ -6,6 +6,12 @@ Instagram collection and analytics dashboard for Red Deer area accounts.
 
 **Live site:** [rd.jaxsondyer.com](https://rd.jaxsondyer.com)
 
+> [!WARNING]
+> **Data collection has stopped.** The third-party Instagram API the worker scraped through
+> (`instagram-looter2` on RapidAPI) appears to have been shut down, so no new posts are being
+> collected. The live site still serves the data from the last successful scrape and shows a
+> notice saying so. Collection will only resume if the worker is moved to a different source.
+
 - **Dashboard and API:** Next.js, deployed to Vercel.
 - **Login:** optional Google OAuth through Supabase Auth.
 - **Database:** Supabase PostgreSQL with public analytics reads and admin-only controls.
