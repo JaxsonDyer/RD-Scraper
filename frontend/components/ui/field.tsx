@@ -45,9 +45,12 @@ export function Checkbox({ isSelected, onChange, children, className }: {
   children: React.ReactNode;
   className?: string;
 }) {
+  // `relative` anchors React Aria's visually hidden <input> to this checkbox. Without it, the input
+  // is positioned against the app shell, stays put when the page scrolls, and iOS Safari scrolls the
+  // overflow-hidden shell off screen to reach it when the checkbox is tapped.
   return (
     <RACCheckbox isSelected={isSelected} onChange={onChange}
-      className={cn("group flex min-h-10 cursor-pointer items-center gap-2.5 text-sm text-foreground", className)}>
+      className={cn("group relative flex min-h-10 cursor-pointer items-center gap-2.5 text-sm text-foreground", className)}>
       <span className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-background transition-colors group-data-[selected]:border-primary group-data-[selected]:bg-primary group-data-[focus-visible]:ring-2 group-data-[focus-visible]:ring-ring">
         <svg className="size-2.5 text-primary-foreground opacity-0 group-data-[selected]:opacity-100" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M3 8L6 11L11 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
