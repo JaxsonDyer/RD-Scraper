@@ -25,7 +25,11 @@ def insight_store(model='test/model'):
     store = Mock()
     store.config.return_value = {'target_accounts': ['a'],
                                  'llm_config': {'lookback_days': 7, 'max_posts': 10, 'model': model}}
-    rows = {'post_overview': [post('p1', 'a', 10, days_old=2)], 'posts': [{'shortcode': 'p1', 'caption': 'test'}],
+    # generate_insights filters on the real clock, so date this post relative to now, not NOW.
+    now = datetime.now(timezone.utc)
+    recent = post('p1', 'a', 10, posted_timestamp=(now - timedelta(days=2)).isoformat(),
+                  scraped_timestamp=now.isoformat())
+    rows = {'post_overview': [recent], 'posts': [{'shortcode': 'p1', 'caption': 'test'}],
             'post_metrics': []}
     store.select.side_effect = lambda table, **params: rows[table]
     return store
