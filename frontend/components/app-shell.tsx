@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen, TriangleAlert, X } from "lucide-react";
 import { SidebarNav, navItems } from "@/components/sidebar-nav";
 import { SidebarAccount } from "@/components/sidebar-account";
 import { HeaderActionsSlot } from "@/components/page-header";
@@ -20,6 +20,25 @@ function subscribeToDesktop(onChange: () => void) {
   const query = window.matchMedia(DESKTOP_QUERY);
   query.addEventListener("change", onChange);
   return () => query.removeEventListener("change", onChange);
+}
+
+// Shown on every page: the third-party Instagram API the worker scrapes through stopped working.
+function ServiceNotice() {
+  return (
+    <div
+      role="status"
+      className="mb-6 flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+    >
+      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-400" />
+      <div className="min-w-0">
+        <p className="font-semibold text-amber-300">Data collection has stopped</p>
+        <p className="mt-0.5 text-amber-100/80">
+          The Instagram API this site collected posts through appears to have been shut down,
+          so no new data is being collected. Everything shown here is from the last successful scrape.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -132,6 +151,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-8 pt-5 sm:px-6 sm:pt-6 lg:px-10 lg:pb-10">
           <div className="mx-auto max-w-7xl">
+            <ServiceNotice />
             <HeaderActionsSlot.Provider value={actionsSlot}>{children}</HeaderActionsSlot.Provider>
           </div>
         </div>
